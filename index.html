@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard | Financial Analytics SUITE</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnMenu" class="btn icon" title="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <div class="logo">FA</div>
+    <div>
+      <div class="title">Dashboard</div>
+      <div class="subtitle">KPIs + Alerts + Trend + Quick Variance</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+    <button id="btnLoadSample" class="btn secondary">بيانات تجريبية</button>
+    <label class="btn">استيراد
+      <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" hidden />
+    </label>
+    <button id="btnExportXLSX" class="btn secondary">تصدير Excel</button>
+    <button id="btnWipe" class="btn danger">مسح</button>
+    <button id="btnLogout" class="btn">خروج</button>
+  </div>
+</header>
+
+
+<div id="backdrop" class="backdrop"></div>
+<aside id="drawer" class="drawer">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div class="logo" style="width:44px;height:44px;border-radius:16px">FA</div>
+    <div>
+      <div style="font-weight:950">Financial Analytics SUITE</div>
+      <div class="small">PRO • Firebase • Admin Only</div>
+    </div>
+  </div>
+
+  <div class="sectionTitle">الشاشات</div>
+  <nav class="nav">
+    <a href="index.html" data-nav="dash"><span>Dashboard</span><span class="hint">KPIs + Alerts</span></a>
+    <a href="data.html" data-nav="data"><span>تسجيل البيانات</span><span class="hint">CRUD + Import</span></a>
+    <a href="monthly.html" data-nav="monthly"><span>تفريغ شهري</span><span class="hint">Waterfall</span></a>
+    <a href="variance.html" data-nav="variance"><span>Variance</span><span class="hint">فترتين + YoY</span></a>
+    <a href="ar-ap.html" data-nav="arap"><span>AR/AP</span><span class="hint">Aging + Cohort</span></a>
+    <a href="alerts.html" data-nav="alerts"><span>قواعد التنبيهات</span><span class="hint">Rules</span></a>
+    <a href="settings.html" data-nav="settings"><span>الإعدادات</span><span class="hint">Balance Inputs</span></a>
+  </nav>
+</aside>
+<script type="module">
+  import { wireDrawer } from "./app.js";
+  wireDrawer("dash");
+</script>
+
+<main class="container">
+
+  <section class="panel">
+    <div class="grid grid4">
+      <div class="field">
+        <label>من تاريخ</label>
+        <input id="fromDate" type="date" />
+      </div>
+      <div class="field">
+        <label>إلى تاريخ</label>
+        <input id="toDate" type="date" />
+      </div>
+      <div class="field">
+        <label>العملة</label>
+        <select id="currency">
+          <option value="EGP">EGP</option>
+          <option value="USD">USD</option>
+          <option value="SAR">SAR</option>
+          <option value="AED">AED</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button id="btnApply" class="btn ok">تطبيق</button>
+        <span class="pill">السجلات: <b id="rowsCount">—</b></span>
+        <span class="pill">Health: <span id="healthScore" class="badge">—</span></span>
+      </div>
+    </div>
+
+    <div class="grid grid4" style="margin-top:10px">
+      <button class="btn secondary" data-preset="month">هذا الشهر</button>
+      <button class="btn secondary" data-preset="quarter">هذا الربع</button>
+      <button class="btn secondary" data-preset="half">نصف سنوي</button>
+      <button class="btn secondary" data-preset="year">هذا العام</button>
+    </div>
+
+    <div class="small" style="margin-top:10px">
+      للاستفادة من AR/AP Aging & Cohort: استخدم types الإضافية:
+      <b>ar_invoice/ar_payment/ap_invoice/ap_payment</b> مع <b>entity</b> و <b>due_date</b> (للـ invoices).
+    </div>
+  </section>
+
+  <section class="grid grid4" style="margin-top:12px">
+    <div class="card">
+      <div class="kpiLabel">المبيعات</div>
+      <div id="kpiRevenue" class="kpiValue">—</div>
+      <div id="kpiRevenueHint" class="kpiHint">—</div>
+    </div>
+    <div class="card">
+      <div class="kpiLabel">الربح الإجمالي</div>
+      <div id="kpiGross" class="kpiValue">—</div>
+      <div class="kpiHint">Revenue - COGS</div>
+    </div>
+    <div class="card">
+      <div class="kpiLabel">EBIT</div>
+      <div id="kpiEbit" class="kpiValue">—</div>
+      <div class="kpiHint">Gross - OPEX + Other</div>
+    </div>
+    <div class="card">
+      <div class="kpiLabel">صافي الربح</div>
+      <div id="kpiNet" class="kpiValue">—</div>
+      <div id="kpiNetHint" class="kpiHint">—</div>
+    </div>
+  </section>
+
+  <section class="grid grid2" style="margin-top:12px">
+    <div class="card">
+      <div class="title">Trend</div>
+      <div class="subtitle">Monthly Sales / Expense / Net</div>
+      <canvas id="chartTrend" height="150"></canvas>
+    </div>
+    <div class="card">
+      <div class="title">Smart Alerts</div>
+      <div class="subtitle">Rules-based alerts from settings in alerts.html</div>
+      <div id="alertsBox" class="grid" style="gap:10px;margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="title">Quick Variance</div>
+    <div class="subtitle">مقارنة آخر شهرين (Auto)</div>
+    <table class="table">
+      <thead><tr><th>البند</th><th>الحالي</th><th>السابق</th><th>الفرق</th><th>%</th></tr></thead>
+      <tbody id="quickVarBody"></tbody>
+    </table>
+  </section>
+
+</main>
+<div id="toast" class="toast"></div>
+
+<script type="module">
+
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
+    import {
+      getFirestore, collection, doc, getDoc, setDoc, getDocs,
+      query, orderBy, where, writeBatch, Timestamp
+    } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+
+    import { CFG, $, toast, n, money, computeKPIs, groupByMonth, fmtVar, rangeForPeriod, safeDiv, clamp } from "./app.js";
+
+    const app = initializeApp(CFG.firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    function normalizeRow(row){
+      const date = String(row.date ?? row.Date ?? row["التاريخ"] ?? "").trim().slice(0,10);
+      const type = String(row.type ?? row.Type ?? row["النوع"] ?? "").trim().toLowerCase();
+      const amountRaw = row.amount ?? row.Amount ?? row["المبلغ"];
+      const category = String(row.category ?? row.Category ?? row["التصنيف"] ?? "").trim();
+
+      const entity = String(row.entity ?? row.Entity ?? row["الطرف"] ?? row["العميل/المورد"] ?? "").trim();
+      const due_date = String(row.due_date ?? row.DueDate ?? row["تاريخ_الاستحقاق"] ?? "").trim().slice(0,10);
+      const ref = String(row.ref ?? row.Ref ?? row["مرجع"] ?? "").trim();
+
+      if(!date || !type) return null;
+      const allowed = new Set(["sale","cogs","expense","other_income","other_expense","tax","receipt","payment",
+        "ar_invoice","ar_payment","ap_invoice","ap_payment"]);
+      if(!allowed.has(type)) return null;
+
+      const amount = Number(String(amountRaw ?? "").replace(/,/g,"").trim());
+      if(!Number.isFinite(amount)) return null;
+
+      return { date, type, amount, category, entity, due_date, ref };
+    }
+
+    async function parseFile(file){
+      const name = (file.name||"").toLowerCase();
+      if(name.endsWith(".csv")){
+        return await new Promise((resolve,reject)=>{
+          Papa.parse(file, {
+            header:true, skipEmptyLines:true,
+            complete: (res)=> {
+              const rows=[];
+              for(const r of (res.data||[])){ const x=normalizeRow(r); if(x) rows.push(x); }
+              resolve(rows);
+            },
+            error: reject
+          });
+        });
+      }
+      if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data, {type:"array"});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, {defval:""});
+        const rows=[];
+        for(const r of json){ const x=normalizeRow(r); if(x) rows.push(x); }
+        return rows;
+      }
+      throw new Error("صيغة غير مدعومة. استخدم CSV أو Excel.");
+    }
+
+    async function addTransactions(rows){
+      const CHUNK=450;
+      for(let i=0;i<rows.length;i+=CHUNK){
+        const batch = writeBatch(db);
+        const part = rows.slice(i,i+CHUNK);
+        for(const r of part){
+          const refDoc = doc(collection(db, "transactions"));
+          batch.set(refDoc, {
+            date: r.date,
+            type: r.type,
+            amount: n(r.amount),
+            category: r.category || "",
+            entity: r.entity || "",
+            due_date: r.due_date || "",
+            ref: r.ref || "",
+            createdAt: Timestamp.now()
+          });
+        }
+        await batch.commit();
+      }
+    }
+
+    async function listTransactions(fromDate, toDate){
+      let q1 = query(collection(db,"transactions"), orderBy("date","asc"));
+      if(fromDate) q1 = query(collection(db,"transactions"), orderBy("date","asc"), where("date", ">=", fromDate));
+      if(toDate) q1 = query(collection(db,"transactions"), orderBy("date","asc"), where("date", "<=", toDate));
+      const snap = await getDocs(q1);
+      const out=[];
+      snap.forEach(d=>out.push({id:d.id, ...d.data()}));
+      return out;
+    }
+
+    async function wipeAll(){
+      const snap = await getDocs(collection(db,"transactions"));
+      const ids=[]; snap.forEach(d=>ids.push(d.id));
+      const batch = writeBatch(db);
+      ids.forEach(id=> batch.delete(doc(db,"transactions", id)));
+      await batch.commit();
+    }
+
+    async function ensureAdmin(){
+      return await new Promise((resolve)=>{
+        onAuthStateChanged(auth, async (user)=>{
+          if(!user || user.uid !== CFG.ADMIN_UID){
+            location.replace("login.html?next="+encodeURIComponent(location.pathname.split("/").pop() || "index.html"));
+            resolve(null);
+            return;
+          }
+          $("userPill").innerHTML = "مستخدم: <b>"+(user.email||"admin")+"</b>";
+          resolve(user);
+        });
+      });
+    }
+
+    function wireCommonButtons(refreshFn){
+      $("btnLogout").addEventListener("click", async ()=>{ await signOut(auth); location.replace("login.html"); });
+      $("btnWipe").addEventListener("click", async ()=>{
+        if(!confirm("تأكيد: سيتم حذف كل معاملات transactions من Firestore")) return;
+        await wipeAll();
+        toast("تم المسح");
+        await refreshFn();
+      });
+      $("fileInput").addEventListener("change", async (e)=>{
+        const file = e.target.files?.[0];
+        if(!file) return;
+        try{
+          $("fileInput").value="";
+          const rows = await parseFile(file);
+          if(!rows.length) throw new Error("لا يوجد صفوف صالحة. تأكد من الأعمدة: date,type,amount");
+          await addTransactions(rows);
+          toast("تم استيراد "+rows.length+" حركة");
+          await refreshFn();
+        }catch(err){
+          console.error(err);
+          toast(err?.message || "فشل الاستيراد");
+        }
+      });
+      $("btnLoadSample").addEventListener("click", async ()=>{
+        try{
+          const csv = `date,type,amount,category,entity,due_date,ref
+2025-12-01,sale,18000,مبيعات,,,
+2025-12-01,cogs,10400,تكلفة,,,
+2025-12-03,expense,1100,رواتب,,,
+2025-12-05,expense,500,تسويق,,,
+2025-12-06,receipt,15000,تحصيل,,,
+2025-12-07,payment,9000,دفع مورد,,,
+2026-01-02,sale,20000,مبيعات,,,
+2026-01-02,cogs,11800,تكلفة,,,
+2026-01-05,expense,1200,رواتب,,,
+2026-01-08,expense,650,تسويق,,,
+2026-01-15,other_income,600,دخل آخر,,,
+2026-01-16,other_expense,350,مصروف آخر,,,
+2026-01-20,tax,600,ضريبة,,,
+2026-02-01,sale,22000,مبيعات,,,
+2026-02-01,cogs,13200,تكلفة,,,
+2026-02-03,expense,900,إيجار,,,
+2026-02-20,tax,700,ضريبة,,,
+2026-01-03,ar_invoice,5000,فاتورة عميل,عميل-أ,2026-02-02,INV-1001
+2026-01-18,ar_invoice,6000,فاتورة عميل,عميل-أ,2026-02-18,INV-1002
+2026-01-25,ar_invoice,4000,فاتورة عميل,عميل-ب,2026-02-24,INV-2001
+2026-02-05,ar_payment,3000,تحصيل عميل,عميل-أ,,PAY-9001
+2026-02-22,ar_payment,5000,تحصيل عميل,عميل-أ,,PAY-9002
+2026-03-10,ar_payment,2000,تحصيل عميل,عميل-ب,,PAY-9100
+2026-01-07,ap_invoice,7000,فاتورة مورد,مورد-س,2026-02-06,BILL-3001
+2026-02-10,ap_payment,4000,سداد مورد,مورد-س,,PMT-8001
+`;
+          const file = new File([csv], "sample_ultraplus.csv", {type:"text/csv"});
+          const rows = await parseFile(file);
+          await addTransactions(rows);
+          toast("تم تحميل بيانات تجريبية ULTRA+");
+          await refreshFn();
+        }catch(e){ console.error(e); toast("فشل تحميل البيانات التجريبية"); }
+      });
+      $("btnExportXLSX").addEventListener("click", async ()=>{
+        const wb = XLSX.utils.book_new();
+        const rows = (window.__rows||[]).map(r=>({
+          date:r.date,type:r.type,amount:r.amount,category:r.category||"",entity:r.entity||"",due_date:r.due_date||"",ref:r.ref||""
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Transactions");
+        if(window.__export && Array.isArray(window.__export.sheets)){
+          for(const sh of window.__export.sheets){
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sh.rows), sh.name);
+          }
+        }
+        XLSX.writeFile(wb, "financial-ultraplus.xlsx");
+      });
+    }
+
+    window.__api = { listTransactions, computeKPIs, groupByMonth, money, n, fmtVar, rangeForPeriod, safeDiv, clamp };
+
+
+let chartTrend=null;
+
+async function loadRules(){
+  const ref = doc(db, "settings", "alerts");
+  const snap = await getDoc(ref);
+  const d = snap.exists()? snap.data(): {};
+  return {
+    grossMarginMin: d.grossMarginMin ?? 0.25,
+    netMarginMin: d.netMarginMin ?? 0.05,
+    cccMax: d.cccMax ?? 90,
+    dsoMax: d.dsoMax ?? 60,
+    currentRatioMin: d.currentRatioMin ?? 1.0,
+    interestCoverageMin: d.interestCoverageMin ?? 2.0
+  };
+}
+
+async function loadInputs(){
+  const ref = doc(db, "settings", "main");
+  const snap = await getDoc(ref);
+  const d = snap.exists()? snap.data(): {};
+  return {
+    assets: d.assets ?? 0, equity: d.equity ?? 0, inv: d.inv ?? 0, ar: d.ar ?? 0, ap: d.ap ?? 0,
+    ca: d.ca ?? 0, cl: d.cl ?? 0,
+    interest: d.interest ?? 0,
+  };
+}
+
+function computeExtra(k, inputs){
+  const inv=n(inputs.inv), ar=n(inputs.ar), ap=n(inputs.ap);
+  const CA=n(inputs.ca), CL=n(inputs.cl);
+  const currentRatio = CL>0 ? CA/CL : NaN;
+  const dso = k.revenue>0 ? (ar/k.revenue)*365 : NaN;
+  const dio = k.cogs>0 ? (inv/k.cogs)*365 : NaN;
+  const dpo = k.cogs>0 ? (ap/k.cogs)*365 : NaN;
+  const ccc = (Number.isFinite(dio)&&Number.isFinite(dso)&&Number.isFinite(dpo)) ? dio+dso-dpo : NaN;
+  const intCover = n(inputs.interest)>0 ? k.ebit/n(inputs.interest) : NaN;
+  return {currentRatio,dso,dio,dpo,ccc,intCover};
+}
+
+function evalAlerts(k, metrics, rules){
+  const alerts=[];
+  const push=(sev,title,detail)=>alerts.push({sev,title,detail});
+  if(k.grossMargin < rules.grossMarginMin) push("bad","هامش إجمالي منخفض", `Gross Margin = ${(k.grossMargin*100).toFixed(1)}% (الحد ${rules.grossMarginMin*100}%)`);
+  if(k.netMargin < rules.netMarginMin) push("warn","هامش صافي منخفض", `Net Margin = ${(k.netMargin*100).toFixed(1)}% (الحد ${rules.netMarginMin*100}%)`);
+  if(Number.isFinite(metrics.dso) && metrics.dso > rules.dsoMax) push("warn","تأخر التحصيل (DSO)", `DSO=${metrics.dso.toFixed(1)} يوم (الحد ${rules.dsoMax})`);
+  if(Number.isFinite(metrics.ccc) && metrics.ccc > rules.cccMax) push("warn","CCC مرتفع", `CCC=${metrics.ccc.toFixed(1)} يوم (الحد ${rules.cccMax})`);
+  if(Number.isFinite(metrics.currentRatio) && metrics.currentRatio < rules.currentRatioMin) push("warn","سيولة منخفضة (Current Ratio)", `CR=${metrics.currentRatio.toFixed(2)} (الحد ${rules.currentRatioMin})`);
+  if(Number.isFinite(metrics.intCover) && metrics.intCover < rules.interestCoverageMin) push("bad","تغطية فائدة ضعيفة", `ICR=${metrics.intCover.toFixed(2)} (الحد ${rules.interestCoverageMin})`);
+  if(alerts.length===0) push("ok","الوضع جيد", "لا توجد تنبيهات حرجة حسب القواعد الحالية");
+  return alerts;
+}
+
+function renderTrend(rows){
+  const {keys, m} = groupByMonth(rows);
+  const sales = keys.map(k=> computeKPIs(m.get(k)).revenue);
+  const exp = keys.map(k=> computeKPIs(m.get(k)).opex);
+  const net = keys.map(k=> computeKPIs(m.get(k)).net);
+
+  if(chartTrend) chartTrend.destroy();
+  chartTrend = new Chart(document.getElementById("chartTrend"), {
+    type:"line",
+    data:{ labels:keys, datasets:[
+      {label:"Sales", data:sales},
+      {label:"OPEX", data:exp},
+      {label:"Net", data:net},
+    ]},
+    options:{
+      responsive:true,
+      plugins:{ legend:{ labels:{ color:"#e8f0ff" } } },
+      scales:{
+        x:{ ticks:{ color:"#9fb2d3" }, grid:{ color:"rgba(255,255,255,.06)" } },
+        y:{ ticks:{ color:"#9fb2d3" }, grid:{ color:"rgba(255,255,255,.06)" } },
+      }
+    }
+  });
+}
+
+function renderQuickVariance(rows, ccy){
+  const {keys, m} = groupByMonth(rows);
+  const last = keys[keys.length-1];
+  const prev = keys[keys.length-2];
+  if(!last || !prev){
+    document.getElementById("quickVarBody").innerHTML = "<tr><td colspan='5' class='small'>لا يوجد بيانات كافية</td></tr>";
+    return;
+  }
+  const a = computeKPIs(m.get(last));
+  const b = computeKPIs(m.get(prev));
+  const lines = [
+    ["Revenue", a.revenue, b.revenue],
+    ["COGS", a.cogs, b.cogs],
+    ["OPEX", a.opex, b.opex],
+    ["EBIT", a.ebit, b.ebit],
+    ["Net", a.net, b.net],
+  ];
+  const html = lines.map(([name,cur,pre])=>{
+    const v = fmtVar(cur, pre);
+    return `<tr>
+      <td>${name}</td>
+      <td><b>${money(cur, ccy)}</b></td>
+      <td>${money(pre, ccy)}</td>
+      <td><b>${money(v.delta, ccy)}</b></td>
+      <td>${Number.isFinite(v.pct)? (v.pct*100).toFixed(1)+"%":"—"}</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("quickVarBody").innerHTML = html;
+}
+
+function renderAlerts(alerts){
+  const box = document.getElementById("alertsBox");
+  box.innerHTML = alerts.map(a=>`
+    <div class="alert">
+      <div class="left">
+        <div class="dot ${a.sev}"></div>
+        <div>
+          <div style="font-weight:950">${a.title}</div>
+          <div class="small">${a.detail}</div>
+        </div>
+      </div>
+      <span class="badge ${a.sev}">${a.sev.toUpperCase()}</span>
+    </div>
+  `).join("");
+}
+
+async function refresh(){
+  const fromDate = document.getElementById("fromDate").value || "";
+  const toDate = document.getElementById("toDate").value || "";
+  const ccy = document.getElementById("currency").value || "EGP";
+
+  const rows = await listTransactions(fromDate, toDate);
+  window.__rows = rows;
+
+  document.getElementById("rowsCount").textContent = rows.length + " حركة";
+  const k = computeKPIs(rows);
+  document.getElementById("kpiRevenue").textContent = money(k.revenue, ccy);
+  document.getElementById("kpiGross").textContent = money(k.gross, ccy);
+  document.getElementById("kpiEbit").textContent = money(k.ebit, ccy);
+  document.getElementById("kpiNet").textContent = money(k.net, ccy);
+  document.getElementById("kpiRevenueHint").textContent = `Gross ${(k.grossMargin*100).toFixed(1)}% • EBIT ${(k.ebitMargin*100).toFixed(1)}%`;
+  document.getElementById("kpiNetHint").textContent = `Net ${(k.netMargin*100).toFixed(1)}% • Net Cash ${money(k.netCash, ccy)}`;
+
+  let score = 55;
+  score += clamp(k.grossMargin*100, -25, 25);
+  score += clamp(k.netMargin*120, -30, 30);
+  score += clamp((k.netCash / Math.max(k.revenue,1))*90, -25, 25);
+  score = clamp(score, 0, 100);
+  const hs = document.getElementById("healthScore");
+  hs.textContent = Math.round(score)+"/100";
+  hs.className = "badge " + (score>=78 ? "ok" : (score>=58 ? "warn" : "bad"));
+
+  renderTrend(rows);
+  renderQuickVariance(rows, ccy);
+
+  const inputs = await loadInputs();
+  const rules = await loadRules();
+  const metrics = computeExtra(k, inputs);
+  const alerts = evalAlerts(k, metrics, rules);
+  renderAlerts(alerts);
+
+  window.__export = {
+    sheets: [
+      {name:"KPIs", rows:[k]},
+      {name:"Alerts", rows:alerts},
+    ]
+  };
+}
+
+document.getElementById("btnApply").addEventListener("click", refresh);
+document.querySelectorAll("[data-preset]").forEach(b=>b.addEventListener("click", async ()=>{
+  const kind = b.getAttribute("data-preset");
+  const r = rangeForPeriod(kind, new Date().toISOString().slice(0,10));
+  document.getElementById("fromDate").value = r.start;
+  document.getElementById("toDate").value = r.end;
+  await refresh();
+}));
+
+await ensureAdmin();
+wireCommonButtons(refresh);
+await refresh();
+
+</script>
+</body>
+</html>
