@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Smart Alerts PRO | Financial Analytics SUITE</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnMenu" class="btn icon" title="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <div class="logo">FA</div>
+    <div>
+      <div class="title">Smart Alerts (PRO+)</div>
+      <div class="subtitle">Threshold + Trend + Anomaly + AR/AP concentration + DSO/DPO/CCC</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+    <button id="btnRun" class="btn ok">Run Rules</button>
+    <button id="btnLogout" class="btn">خروج</button>
+  </div>
+</header>
+
+<div id="backdrop" class="backdrop"></div>
+<aside id="drawer" class="drawer">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div class="logo" style="width:44px;height:44px;border-radius:16px">FA</div>
+    <div>
+      <div style="font-weight:950">Financial Analytics SUITE</div>
+      <div class="small">PRO+ • Rules + AI-lite</div>
+    </div>
+  </div>
+  <div class="sectionTitle">الشاشات</div>
+  <nav class="nav">
+    <a href="cfo.html" data-nav="cfo"><span>CFO Reports</span><span class="hint">KPIs</span></a>
+    <a href="alerts-pro.html" data-nav="alerts"><span>Alerts PRO</span><span class="hint">Ack/Snooze</span></a>
+    <a href="documents.html" data-nav="docs"><span>المستندات</span><span class="hint">Auto-post</span></a>
+    <a href="settings.html" data-nav="settings"><span>الإعدادات</span><span class="hint">Rules</span></a>
+  </nav>
+</aside>
+
+<main class="container">
+  <section class="panel">
+    <div class="grid grid4">
+      <div class="field"><label>Period (YYYY-MM)</label><input id="period" placeholder="2026-02"/></div>
+      <div class="field"><label>AR concentration threshold (%)</label><input id="arConc" type="number" value="40"/></div>
+      <div class="field"><label>Anomaly Z threshold</label><input id="z" type="number" step="0.1" value="2.5"/></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button id="btnRefresh" class="btn secondary">Load Alerts</button>
+        <span class="pill">Open: <b id="openCnt">—</b></span>
+      </div>
+    </div>
+    <div class="small" style="margin-top:10px">هذه الصفحة تنشئ Alerts في Firestore: <b>alerts</b> + سجل الإجراءات <b>alerts_log</b> (Acknowledged/Snooze).</div>
+  </section>
+
+  <section class="grid grid2" style="margin-top:12px">
+    <div class="card">
+      <div class="sheetHead">
+        <div>
+          <div class="title">Open Alerts</div>
+          <div class="subtitle">Acknowledged / Snooze</div>
+        </div>
+      </div>
+      <div id="alertsBox" class="grid" style="gap:10px;margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <div class="title">Actions Log</div>
+      <div class="subtitle">آخر 200 عملية</div>
+      <div style="overflow:auto;margin-top:10px">
+        <table class="table">
+          <thead><tr><th>at</th><th>alertId</th><th>action</th><th>note</th></tr></thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+  import { wireDrawer, toast } from "./app.js";
+  import { requireAuth, logout, db, companyCol } from "./firebase_client.js";
+  import { listCOA, listJournalEntries, getJournalLinesForEntry } from "./store.js";
+  import { anomalyScore } from "./accounting.js";
+  import { addDoc, collection, doc, getDocs, query, where, orderBy, limit, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+  wireDrawer('alerts');
+  const $=(id)=>document.getElementById(id);
+  let userUid='';
+  let COA=[];
+  let coaById=new Map();
+
+  function monthRange(period){
+    const [y,m]=period.split('-').map(Number);
+    const start = `${period}-01`;
+    const end = new Date(y, m, 0).toISOString().slice(0,10);
+    return {start,end};
+  }
+
+  async function loadCOA0(){
+    COA = await listCOA();
+    coaById = new Map(COA.map(a=>[a.id,a]));
+  }
+
+  async function loadLines(from,to){
+    const lines=[];
+    let cursor=null;
+    for(;;){
+      const { rows, nextCursor } = await listJournalEntries({from,to,pageSize:120,cursor});
+      if(!rows.length) break;
+      for(const je of rows){
+        const ls=await getJournalLinesForEntry(je.id);
+        ls.forEach(l=>lines.push({date:je.date, ref:je.ref||'', memo:je.memo||'', accountId:l.accountId, baseDebit:l.baseDebit||0, baseCredit:l.baseCredit||0, entityId:l.entityId||'', entityType:l.entityType||''}));
+      }
+      cursor=nextCursor;
+      if(!cursor) break;
+    }
+    return lines;
+  }
+
+  async function createAlert(ruleId, severity, title, details, period){
+    await addDoc(companyCol('alerts'), {
+      ruleId, severity, title, details, period,
+      status:'open',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  async function logAction(alertId, action, note=''){
+    await addDoc(companyCol('alerts_log'), { alertId, action, note, by:userUid, at: serverTimestamp() });
+  }
+
+  async function runRules(){
+    const period = $('period').value.trim();
+    if(!/^\d{4}-\d{2}$/.test(period)){ toast('حدد period YYYY-MM'); return; }
+    const {start,end}=monthRange(period);
+    const lines = await loadLines(start,end);
+    // Trend/anomaly: compare expenses in last 3 months to current
+    const zTh = Number($('z').value)||2.5;
+    const expAccIds = COA.filter(a=>a.type==='expense').map(a=>a.id);
+    const sumMonth = async (p)=>{
+      const {start,end}=monthRange(p);
+      const ls = await loadLines(start,end);
+      const set=new Set(expAccIds);
+      return ls.filter(l=>set.has(l.accountId)).reduce((s,l)=>s + (l.baseDebit-l.baseCredit),0);
+    }
+    const [yy,mm]=period.split('-').map(Number);
+    const prev = (k)=>{
+      const d=new Date(yy, mm-1-k, 1);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    }
+    const v0 = await sumMonth(prev(3));
+    const v1 = await sumMonth(prev(2));
+    const v2 = await sumMonth(prev(1));
+    const v3 = expAccIds.length? lines.filter(l=>new Set(expAccIds).has(l.accountId)).reduce((s,l)=>s+(l.baseDebit-l.baseCredit),0):0;
+    const an = anomalyScore([v0,v1,v2,v3]);
+    if(Math.abs(an.z) >= zTh){
+      await createAlert('anomaly_expense', 'warn', 'Expense anomaly detected', `Z=${an.z.toFixed(2)} current=${v3.toFixed(0)} mean=${an.mean.toFixed(0)}`, period);
+    }
+
+    // AR concentration: entity share on AR account
+    const arAcc = COA.find(a=>a.isAR);
+    if(arAcc){
+      const arLines = lines.filter(l=>l.accountId===arAcc.id && (l.entityType==='customer' || l.entityType===''));
+      const byEnt=new Map();
+      for(const l of arLines){
+        const k=l.entityId||'(unknown)';
+        const net=(l.baseDebit-l.baseCredit);
+        byEnt.set(k, (byEnt.get(k)||0)+net);
+      }
+      const total=[...byEnt.values()].reduce((s,x)=>s+x,0);
+      const thr = (Number($('arConc').value)||40)/100;
+      let top={k:'',v:0};
+      for(const [k,v] of byEnt.entries()){ if(v>top.v) top={k,v}; }
+      if(total>0 && top.v/total >= thr){
+        await createAlert('ar_concentration', 'warn', 'AR concentration risk', `Top customer ${top.k} يمثل ${(top.v/total*100).toFixed(1)}% من AR movements هذا الشهر`, period);
+      }
+    }
+
+    toast('تم تشغيل القواعد (قد تظهر تنبيهات جديدة)');
+    await loadAlerts();
+  }
+
+  async function loadAlerts(){
+    const period = $('period').value.trim();
+    const q0 = period ? query(companyCol('alerts'), where('period','==',period), orderBy('createdAt','desc'), limit(50))
+      : query(companyCol('alerts'), orderBy('createdAt','desc'), limit(50));
+    const snap = await getDocs(q0);
+    const rows = snap.docs.map(d=>({id:d.id, ...d.data()}));
+    const open = rows.filter(r=>r.status==='open');
+    $('openCnt').textContent = String(open.length);
+    const box=$('alertsBox'); box.innerHTML='';
+    for(const a of open){
+      const div=document.createElement('div');
+      div.className='alert';
+      div.innerHTML = `<div class='left'><div class='dot ${a.severity==='bad'?'bad':(a.severity==='warn'?'warn':'ok')}'></div>
+        <div><div style='font-weight:950'>${a.title||''}</div><div class='small'>${a.details||''}</div><div class='small'>${a.period||''}</div></div></div>
+        <div style='display:flex;gap:8px;flex-wrap:wrap'>
+          <button class='btn secondary' data-act='ack'>Ack</button>
+          <button class='btn secondary' data-act='snooze'>Snooze 7d</button>
+        </div>`;
+      div.querySelector('[data-act=ack]').addEventListener('click', async ()=>{
+        await updateDoc(doc(companyCol('alerts'), a.id), { status:'ack', updatedAt: serverTimestamp() });
+        await logAction(a.id,'ack');
+        await loadAlerts();
+        await loadLog();
+      });
+      div.querySelector('[data-act=snooze]').addEventListener('click', async ()=>{
+        const until = new Date(Date.now()+7*24*3600*1000);
+        await updateDoc(doc(companyCol('alerts'), a.id), { status:'snooze', snoozeUntil: until.toISOString().slice(0,10), updatedAt: serverTimestamp() });
+        await logAction(a.id,'snooze','7d');
+        await loadAlerts();
+        await loadLog();
+      });
+      box.appendChild(div);
+    }
+  }
+
+  async function loadLog(){
+    const snap = await getDocs(query(companyCol('alerts_log'), orderBy('at','desc'), limit(200)));
+    const tb=$('logBody'); tb.innerHTML='';
+    for(const d0 of snap.docs){
+      const r=d0.data();
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${r.at?.toDate? r.at.toDate().toLocaleString():''}</td><td>${r.alertId||''}</td><td>${r.action||''}</td><td>${r.note||''}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  $('btnRun').addEventListener('click', runRules);
+  $('btnRefresh').addEventListener('click', async ()=>{ await loadAlerts(); await loadLog(); });
+  $('btnLogout').addEventListener('click', logout);
+
+  requireAuth(async (user)=>{
+    userUid = user.uid;
+    document.querySelector('#userPill b').textContent = user.email || user.uid;
+    $('period').value = new Date().toISOString().slice(0,7);
+    await loadCOA0();
+    await loadAlerts();
+    await loadLog();
+  });
+
+</script>
+
+<script type="module" src="./pwa.js"></script>
+</body>
+</html>

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="manifest" href="manifest.json" />
+  <title>CFO Reports | Financial Analytics SUITE</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnMenu" class="btn icon" title="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <div class="logo">FA</div>
+    <div>
+      <div class="title">CFO Reports</div>
+      <div class="subtitle">P&L • Balance Sheet • Cash Flow • Waterfall • Budget vs Actual • Drill-down</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+    <button id="btnExportXLSX" class="btn secondary">Export Excel</button>
+    <button id="btnExportPDF" class="btn secondary">Export PDF</button>
+    <button id="btnPrint" class="btn">طباعة</button>
+    <button id="btnLogout" class="btn">خروج</button>
+  </div>
+</header>
+
+<div id="backdrop" class="backdrop"></div>
+<aside id="drawer" class="drawer">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div class="logo" style="width:44px;height:44px;border-radius:16px">FA</div>
+    <div>
+      <div style="font-weight:950">Financial Analytics SUITE</div>
+      <div class="small">PRO+ • Accounting Engine v2</div>
+    </div>
+  </div>
+  <div class="sectionTitle">الشاشات</div>
+  <nav class="nav">
+    <a href="index.html" data-nav="dash"><span>Dashboard</span><span class="hint">Legacy KPIs</span></a>
+    <a href="data.html" data-nav="data"><span>تسجيل البيانات</span><span class="hint">Legacy CRUD</span></a>
+    <a href="cfo.html" data-nav="cfo"><span>CFO Reports</span><span class="hint">P&L / CF / BS</span></a>
+    <a href="coa.html" data-nav="coa"><span>دليل الحسابات</span><span class="hint">Chart of Accounts</span></a>
+    <a href="documents.html" data-nav="docs"><span>المستندات</span><span class="hint">Invoices & Vouchers</span></a>
+    <a href="period-close.html" data-nav="close"><span>Period Close</span><span class="hint">Lock periods</span></a>
+    <a href="fx.html" data-nav="fx"><span>أسعار الصرف</span><span class="hint">Multi-currency</span></a>
+    <a href="budgets.html" data-nav="budget"><span>Budget</span><span class="hint">Variance</span></a>
+    <a href="alerts.html" data-nav="alerts"><span>Alerts</span><span class="hint">Rules + AI-lite</span></a>
+    <a href="settings.html" data-nav="settings"><span>الإعدادات</span><span class="hint">Company</span></a>
+  </nav>
+</aside>
+
+<main class="container">
+  <section class="panel">
+    <div class="grid grid4">
+      <div class="field"><label>من تاريخ</label><input id="fromDate" type="date"/></div>
+      <div class="field"><label>إلى تاريخ</label><input id="toDate" type="date"/></div>
+      <div class="field"><label>Base Currency</label><input id="baseCcy" disabled/></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button id="btnRun" class="btn ok">تحديث</button>
+        <span class="pill">Rows: <b id="rowsCount">—</b></span>
+      </div>
+    </div>
+    <div class="small" style="margin-top:10px">تقارير محاسبية تعتمد على قيود اليومية (Journal Entries) بعملة الأساس. أي رقم قابل للضغط لعرض الحركات (Drill-down).</div>
+  </section>
+
+  <section class="grid grid2" style="margin-top:12px">
+    <div class="card">
+      <div class="title">P&L Summary</div>
+      <div class="subtitle">MoM / QoQ / YoY + YTD</div>
+      <table class="table">
+        <thead><tr><th>البند</th><th>القيمة</th></tr></thead>
+        <tbody id="pnlSummary"></tbody>
+      </table>
+      <div style="margin-top:12px"><canvas id="waterfall" height="140"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="title">Balance Sheet</div>
+      <div class="subtitle">As of end date</div>
+      <table class="table">
+        <thead><tr><th>البند</th><th>القيمة</th></tr></thead>
+        <tbody id="bsSummary"></tbody>
+      </table>
+      <hr/>
+      <div class="title">Cash Flow</div>
+      <div class="subtitle">Direct + Indirect (simplified)</div>
+      <table class="table">
+        <thead><tr><th>البند</th><th>القيمة</th></tr></thead>
+        <tbody id="cfSummary"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="sheetHead">
+      <div>
+        <div class="title">Budget vs Actual</div>
+        <div class="subtitle">Variance by account (base currency)</div>
+      </div>
+      <span class="small">* يتطلب إدخال ميزانية في صفحة Budget</span>
+    </div>
+    <table class="table" style="margin-top:10px">
+      <thead><tr><th>الحساب</th><th>Actual</th><th>Budget</th><th>Variance</th><th>%</th></tr></thead>
+      <tbody id="bvA"></tbody>
+    </table>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="sheetHead">
+      <div>
+        <div class="title">Drill-down</div>
+        <div class="subtitle">اضغط على أي رقم في التقارير لعرض تفاصيل القيود</div>
+      </div>
+      <span class="pill">Filter: <b id="drillFilter">—</b></span>
+    </div>
+    <div style="margin-top:10px;overflow:auto">
+      <table class="table">
+        <thead><tr><th>date</th><th>ref</th><th>memo</th><th>account</th><th>debit</th><th>credit</th></tr></thead>
+        <tbody id="drillBody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+  import { wireDrawer, money, rangeForPeriod, fmtVar, pct } from "./app.js";
+  import { requireAuth, logout, companyRef } from "./firebase_client.js";
+  import { listCOA, listJournalEntries, getJournalLinesForEntry } from "./store.js";
+  import { aggregateTrialBalance, splitStatements, pnlTotals, balanceSheetTotals, computeDirectCashFlow, computeIndirectCashFlow } from "./accounting.js";
+  import { getDocs, getDoc, query, where, collection, orderBy } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+  import { db, companyCol } from "./firebase_client.js";
+
+  wireDrawer("cfo");
+
+  const $ = (id)=>document.getElementById(id);
+  const fromDate = $("fromDate");
+  const toDate = $("toDate");
+
+  function setDefaultRange(){
+    const r = rangeForPeriod("month");
+    fromDate.value = r.start;
+    toDate.value = r.end;
+  }
+
+  let COA = [];
+  let coaById = new Map();
+  let coaByCode = new Map();
+  function accountByCode(code){ return coaByCode.get(String(code)); }
+
+  function clickify(el, payload){
+    el.style.cursor = "pointer";
+    el.title = "اضغط لعرض التفاصيل";
+    el.addEventListener("click", ()=> runDrilldown(payload));
+  }
+
+  async function loadCOA(){
+    COA = await listCOA();
+    coaById = new Map(COA.map(a=>[a.id,a]));
+    coaByCode = new Map(COA.map(a=>[String(a.code||"").trim(), a]));
+  }
+
+  async function loadAllJournalLines(from, to){
+    // Paginate through journal entries; fetch lines.
+    const lines=[];
+    let cursor=null;
+    let count=0;
+    for(;;){
+      const { rows, nextCursor } = await listJournalEntries({from, to, pageSize:120, cursor});
+      if(!rows.length) break;
+      for(const je of rows){
+        const jeLines = await getJournalLinesForEntry(je.id);
+        for(const l of jeLines){
+          lines.push({
+            jeId: je.id,
+            date: je.date,
+            ref: je.ref||"",
+            memo: je.memo||"",
+            accountId: l.accountId,
+            baseDebit: l.baseDebit ?? l.debit ?? 0,
+            baseCredit: l.baseCredit ?? l.credit ?? 0,
+          });
+        }
+      }
+      count += rows.length;
+      cursor = nextCursor;
+      if(!cursor) break;
+      if(count>2000) break; // safety
+    }
+    return lines;
+  }
+
+  async function loadBudgetLines(year){
+    // Find latest budget for year.
+    const q0 = query(companyCol("budgets"), where("year","==",year), orderBy("createdAt","desc"));
+    const snap = await getDocs(q0);
+    if(snap.empty) return [];
+    const b = snap.docs[0];
+    const linesSnap = await getDocs(collection(db, companyCol("budgets").path, b.id, "lines"));
+    return linesSnap.docs.map(d=>d.data());
+  }
+
+  function renderWaterfall(vals, baseCcy){
+    const ctx = document.getElementById("waterfall");
+    const labels = ["Revenue","COGS","Gross","OPEX","EBIT","Tax","Net"];
+    const data = [vals.revenue, -vals.cogs, vals.gross, -vals.expense, vals.ebit, -vals.tax, vals.net];
+    if(window.__wf) window.__wf.destroy();
+    window.__wf = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label: `(${baseCcy})`, data }] },
+      options: { responsive:true, plugins:{ legend:{display:false} }, scales:{ y:{ ticks:{ callback:(v)=>v.toLocaleString() } } } }
+    });
+  }
+
+  function addRow(tbody, label, value, drill){
+    const tr=document.createElement('tr');
+    const td1=document.createElement('td'); td1.textContent=label;
+    const td2=document.createElement('td'); td2.textContent=value;
+    if(drill) clickify(td2, drill);
+    tr.append(td1,td2);
+    tbody.appendChild(tr);
+  }
+
+  async function run(){
+    const from = fromDate.value;
+    const to = toDate.value;
+    if(!from || !to) return;
+    await loadCOA();
+
+    const baseCcy = document.getElementById('baseCcy').value || 'EGP';
+    const lines = await loadAllJournalLines(from,to);
+    document.getElementById('rowsCount').textContent = String(lines.length);
+
+    const tb = aggregateTrialBalance(lines, coaById);
+    const { pnl, bs } = splitStatements(tb, coaById);
+    const pnlSum = pnlTotals(pnl);
+    const bsSum = balanceSheetTotals(bs);
+
+    // P&L summary with drilldowns
+    const pnlBody = document.getElementById('pnlSummary');
+    pnlBody.innerHTML='';
+    addRow(pnlBody, 'Revenue', money(pnlSum.revenue, baseCcy), { accountTypes:['revenue'], from, to });
+    addRow(pnlBody, 'COGS', money(pnlSum.cogs, baseCcy), { accountTypes:['cogs'], from, to });
+    addRow(pnlBody, 'Gross', money(pnlSum.gross, baseCcy), { accountTypes:['revenue','cogs'], from, to });
+    addRow(pnlBody, 'OPEX', money(pnlSum.expense, baseCcy), { accountTypes:['expense'], from, to });
+    addRow(pnlBody, 'EBIT', money(pnlSum.ebit, baseCcy), { accountTypes:['revenue','cogs','expense','other_income','other_expense'], from, to });
+    addRow(pnlBody, 'Tax', money(pnlSum.tax, baseCcy), { accountTypes:['tax'], from, to });
+    addRow(pnlBody, 'Net', money(pnlSum.net, baseCcy), { accountTypes:['revenue','cogs','expense','other_income','other_expense','tax'], from, to });
+
+    renderWaterfall(pnlSum, baseCcy);
+
+    // BS
+    const bsBody = document.getElementById('bsSummary');
+    bsBody.innerHTML='';
+    addRow(bsBody, 'Assets', money(bsSum.assets, baseCcy), { accountTypes:['asset'], toDate:to });
+    addRow(bsBody, 'Liabilities', money(bsSum.liabilities, baseCcy), { accountTypes:['liability'], toDate:to });
+    addRow(bsBody, 'Equity', money(bsSum.equity, baseCcy), { accountTypes:['equity'], toDate:to });
+    addRow(bsBody, 'L + E', money(bsSum.liabEq, baseCcy), { accountTypes:['liability','equity'], toDate:to });
+    addRow(bsBody, 'Diff (should be 0)', money(bsSum.diff, baseCcy));
+
+    // Cash Flow
+    const cashIds = COA.filter(a=>a.isCash).map(a=>a.id);
+    const direct = computeDirectCashFlow(lines, cashIds);
+    const cfBody = document.getElementById('cfSummary');
+    cfBody.innerHTML='';
+    addRow(cfBody, 'Direct Inflow', money(direct.inflow, baseCcy), { cash:true, from, to });
+    addRow(cfBody, 'Direct Outflow', money(direct.outflow, baseCcy), { cash:true, from, to });
+    addRow(cfBody, 'Direct Net Cash', money(direct.netCash, baseCcy), { cash:true, from, to });
+    const indirect = computeIndirectCashFlow({ netIncome: pnlSum.net, deltaAR:0, deltaAP:0, deltaInventory:0 });
+    addRow(cfBody, 'Indirect Net Cash (simplified)', money(indirect.netCash, baseCcy));
+
+    // Budget vs Actual (by account)
+    const year = Number(String(from).slice(0,4));
+    const budgetLines = await loadBudgetLines(year);
+    const bmap = new Map();
+    for(const bl of budgetLines){
+      const k = `${bl.accountId}::${bl.month}`;
+      bmap.set(k, (bmap.get(k)||0) + (bl.amountBase||0));
+    }
+
+    const actualByAcc = new Map();
+    for(const r of tb){
+      if(!r.accountId) continue;
+      actualByAcc.set(r.accountId, (actualByAcc.get(r.accountId)||0) + (r.net||0));
+    }
+    // Budget for months covered
+    const mFrom = Number(String(from).slice(5,7));
+    const mTo = Number(String(to).slice(5,7));
+    const months = [];
+    for(let m=mFrom;m<=mTo;m++) months.push(`${year}-${String(m).padStart(2,'0')}`);
+    const budgetByAcc = new Map();
+    for(const [k,v] of bmap.entries()){
+      const [accId, month] = k.split('::');
+      if(months.includes(month)) budgetByAcc.set(accId, (budgetByAcc.get(accId)||0)+v);
+    }
+
+    const bvaBody = document.getElementById('bvA');
+    bvaBody.innerHTML='';
+    const rows = [...actualByAcc.keys()].map(accId=>{
+      const acc = coaById.get(accId);
+      const actual = actualByAcc.get(accId)||0;
+      const budget = budgetByAcc.get(accId)||0;
+      const variance = actual - budget;
+      const p = budget ? (variance/budget) : NaN;
+      return { accId, name: `${acc?.code||''} • ${acc?.name||accId}`, actual, budget, variance, p };
+    }).sort((a,b)=>Math.abs(b.variance)-Math.abs(a.variance)).slice(0,40);
+    for(const r of rows){
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${r.name}</td><td>${money(r.actual,baseCcy)}</td><td>${money(r.budget,baseCcy)}</td><td>${money(r.variance,baseCcy)}</td><td>${pct(r.p)}</td>`;
+      clickify(tr.children[1], { accountId:r.accId, from, to });
+      bvaBody.appendChild(tr);
+    }
+  }
+
+  async function runDrilldown(filter){
+    document.getElementById('drillFilter').textContent = JSON.stringify(filter);
+    const from = filter.from || fromDate.value;
+    const to = filter.to || toDate.value;
+    const lines = await loadAllJournalLines(from,to);
+    let out = lines;
+    if(filter.accountId){
+      out = out.filter(l=>l.accountId===filter.accountId);
+    }
+    if(filter.accountTypes){
+      const types = new Set(filter.accountTypes);
+      out = out.filter(l=>types.has(coaById.get(l.accountId)?.type));
+    }
+    if(filter.cash){
+      const cash = new Set(COA.filter(a=>a.isCash).map(a=>a.id));
+      out = out.filter(l=>cash.has(l.accountId));
+    }
+    out = out.slice(0,300);
+    const tb = document.getElementById('drillBody');
+    tb.innerHTML='';
+    for(const l of out){
+      const acc = coaById.get(l.accountId);
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${l.date||''}</td><td>${l.ref||''}</td><td>${l.memo||''}</td><td>${acc? (acc.code+' '+acc.name): l.accountId}</td><td>${(l.baseDebit||0).toLocaleString()}</td><td>${(l.baseCredit||0).toLocaleString()}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  function exportExcel(){
+    // Very lightweight export of current tables.
+    const wb = XLSX.utils.book_new();
+    const toSheet = (tbodyId, name)=>{
+      const table = document.getElementById(tbodyId).closest('table');
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(table), name);
+    };
+    toSheet('pnlSummary', 'P&L');
+    toSheet('bsSummary', 'BalanceSheet');
+    toSheet('cfSummary', 'CashFlow');
+    toSheet('bvA', 'BudgetVsActual');
+    toSheet('drillBody', 'Drilldown');
+    XLSX.writeFile(wb, 'CFO_Reports.xlsx');
+  }
+
+  function exportPDF(){
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'pt', format:'a4' });
+    doc.setFont('helvetica','bold');
+    doc.text('CFO Reports', 40, 40);
+    doc.setFont('helvetica','normal');
+    doc.text(`From ${fromDate.value} To ${toDate.value}`, 40, 60);
+    const addTable = (selector, title, startY)=>{
+      doc.setFont('helvetica','bold');
+      doc.text(title, 40, startY);
+      doc.autoTable({ html: selector, startY: startY+10, theme:'grid', styles:{fontSize:9} });
+      return doc.lastAutoTable.finalY + 20;
+    }
+    let y = 90;
+    y = addTable(document.querySelector('#pnlSummary').closest('table'), 'P&L', y);
+    y = addTable(document.querySelector('#bsSummary').closest('table'), 'Balance Sheet', y);
+    y = addTable(document.querySelector('#cfSummary').closest('table'), 'Cash Flow', y);
+    y = addTable(document.querySelector('#bvA').closest('table'), 'Budget vs Actual', y);
+    doc.save('CFO_Reports.pdf');
+  }
+
+  requireAuth(async (user)=>{
+    document.querySelector('#userPill b').textContent = user.email || user.uid;
+    // load base currency
+    const companySnap = await getDoc(companyRef());
+    const baseCcy = companySnap.exists() ? (companySnap.data().baseCurrency||'EGP') : 'EGP';
+    document.getElementById('baseCcy').value = baseCcy;
+    setDefaultRange();
+    await run();
+  });
+
+  document.getElementById('btnRun').addEventListener('click', run);
+  document.getElementById('btnLogout').addEventListener('click', ()=>logout());
+  document.getElementById('btnPrint').addEventListener('click', ()=>window.print());
+  document.getElementById('btnExportXLSX').addEventListener('click', exportExcel);
+  document.getElementById('btnExportPDF').addEventListener('click', exportPDF);
+
+</script>
+
+<script type="module" src="./pwa.js"></script>
+</body>
+</html>

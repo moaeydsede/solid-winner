@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Chart of Accounts | Financial Analytics SUITE</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnMenu" class="btn icon" title="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <div class="logo">FA</div>
+    <div>
+      <div class="title">دليل الحسابات</div>
+      <div class="subtitle">COA • Cash/AR/AP flags • FX-monetary</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+    <button id="btnSeed" class="btn secondary">Seed COA</button>
+    <button id="btnNew" class="btn ok">+ حساب</button>
+    <button id="btnLogout" class="btn">خروج</button>
+  </div>
+</header>
+
+<div id="backdrop" class="backdrop"></div>
+<aside id="drawer" class="drawer">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div class="logo" style="width:44px;height:44px;border-radius:16px">FA</div>
+    <div>
+      <div style="font-weight:950">Financial Analytics SUITE</div>
+      <div class="small">PRO+ • Accounting Engine v2</div>
+    </div>
+  </div>
+  <div class="sectionTitle">الشاشات</div>
+  <nav class="nav">
+    <a href="index.html" data-nav="dash"><span>Dashboard</span><span class="hint">Legacy KPIs</span></a>
+    <a href="cfo.html" data-nav="cfo"><span>CFO Reports</span><span class="hint">P&L / CF / BS</span></a>
+    <a href="coa.html" data-nav="coa"><span>دليل الحسابات</span><span class="hint">COA</span></a>
+    <a href="documents.html" data-nav="docs"><span>المستندات</span><span class="hint">Invoices & Vouchers</span></a>
+    <a href="period-close.html" data-nav="close"><span>Period Close</span><span class="hint">Lock periods</span></a>
+    <a href="fx.html" data-nav="fx"><span>أسعار الصرف</span><span class="hint">Multi-currency</span></a>
+    <a href="budgets.html" data-nav="budget"><span>Budget</span><span class="hint">Variance</span></a>
+    <a href="alerts.html" data-nav="alerts"><span>Alerts</span><span class="hint">Rules + AI-lite</span></a>
+    <a href="settings.html" data-nav="settings"><span>الإعدادات</span><span class="hint">Company</span></a>
+  </nav>
+</aside>
+
+<main class="container">
+  <section class="card">
+    <div class="sheetHead">
+      <div>
+        <div class="title">الحسابات</div>
+        <div class="subtitle">اضغط على صف للتعديل</div>
+      </div>
+      <span class="pill">Count: <b id="cnt">—</b></span>
+    </div>
+    <div style="margin-top:10px;overflow:auto">
+      <table class="table">
+        <thead><tr><th>Code</th><th>Name</th><th>Type</th><th>Flags</th><th></th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="title">ملاحظات</div>
+    <div class="small" style="margin-top:6px">
+      - لو تريد تقارير Cash Flow مباشرة: ضع علامة <b>isCash</b> على حساب/حسابات النقدية/البنك.<br/>
+      - AR/AP Aging يعتمد على حسابات <b>isAR</b> و <b>isAP</b> وعلى ربط المستندات بالعملاء/الموردين.<br/>
+      - FX Revaluation يعتمد على <b>isFxMonetary</b> للحسابات النقدية/الذمم بعملة أجنبية.
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="modal">
+  <div class="card sheet">
+    <div class="sheetHead">
+      <div>
+        <div class="title" id="mTitle">حساب</div>
+        <div class="subtitle">حفظ مباشر على Firestore</div>
+      </div>
+      <button id="btnClose" class="btn">إغلاق</button>
+    </div>
+    <hr/>
+    <div class="grid grid3">
+      <div class="field"><label>Code</label><input id="f_code"/></div>
+      <div class="field"><label>Name</label><input id="f_name"/></div>
+      <div class="field"><label>Type</label>
+        <select id="f_type">
+          <option value="asset">asset</option>
+          <option value="liability">liability</option>
+          <option value="equity">equity</option>
+          <option value="revenue">revenue</option>
+          <option value="cogs">cogs</option>
+          <option value="expense">expense</option>
+          <option value="other_income">other_income</option>
+          <option value="other_expense">other_expense</option>
+          <option value="tax">tax</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid grid4" style="margin-top:10px">
+      <label class="pill"><input id="f_cash" type="checkbox"/> isCash</label>
+      <label class="pill"><input id="f_ar" type="checkbox"/> isAR</label>
+      <label class="pill"><input id="f_ap" type="checkbox"/> isAP</label>
+      <label class="pill"><input id="f_fx" type="checkbox"/> isFxMonetary</label>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <button id="btnSave" class="btn ok">حفظ</button>
+      <button id="btnDelete" class="btn danger">حذف</button>
+      <span class="small" id="hint"></span>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+  import { wireDrawer, toast } from "./app.js";
+  import { requireAuth, logout } from "./firebase_client.js";
+  import { listCOA, upsertAccount, deleteAccount } from "./store.js";
+
+  wireDrawer('coa');
+  const $=(id)=>document.getElementById(id);
+  const tbody=$('tbody');
+  const modal=$('modal');
+  const btnClose=$('btnClose');
+  let cur=null;
+
+  function open(acc){
+    cur = acc || { id:"", code:"", name:"", type:"asset", isCash:false, isAR:false, isAP:false, isFxMonetary:false };
+    $('f_code').value = cur.code||"";
+    $('f_name').value = cur.name||"";
+    $('f_type').value = cur.type||"asset";
+    $('f_cash').checked = !!cur.isCash;
+    $('f_ar').checked = !!cur.isAR;
+    $('f_ap').checked = !!cur.isAP;
+    $('f_fx').checked = !!cur.isFxMonetary;
+    modal.classList.add('show');
+  }
+  function close(){ modal.classList.remove('show'); }
+
+  async function refresh(){
+    const rows = await listCOA();
+    $('cnt').textContent = String(rows.length);
+    tbody.innerHTML='';
+    for(const a of rows){
+      const flags = [a.isCash?'Cash':'', a.isAR?'AR':'', a.isAP?'AP':'', a.isFxMonetary?'FX':''].filter(Boolean).join(' • ');
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${a.code||''}</td><td>${a.name||''}</td><td>${a.type||''}</td><td>${flags||'—'}</td><td><button class='btn secondary'>Edit</button></td>`;
+      tr.querySelector('button').addEventListener('click', ()=>open(a));
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function seed(){
+    const seed = [
+      {code:'1000', name:'Cash / Bank', type:'asset', isCash:true, isFxMonetary:true},
+      {code:'1100', name:'Accounts Receivable', type:'asset', isAR:true, isFxMonetary:true},
+      {code:'1200', name:'Inventory', type:'asset', isInventory:true},
+      {code:'2000', name:'Accounts Payable', type:'liability', isAP:true, isFxMonetary:true},
+      {code:'3000', name:'Equity', type:'equity'},
+      {code:'4000', name:'Sales Revenue', type:'revenue'},
+      {code:'5000', name:'COGS', type:'cogs'},
+      {code:'6000', name:'Operating Expenses', type:'expense'},
+      {code:'7000', name:'Other Income', type:'other_income'},
+      {code:'7100', name:'Other Expense', type:'other_expense'},
+      {code:'7200', name:'Tax', type:'tax'},
+      {code:'7990', name:'FX Gain/Loss', type:'other_income'},
+    ];
+    for(const a of seed){ await upsertAccount(a); }
+    toast('تم إنشاء دليل حسابات افتراضي.');
+    await refresh();
+  }
+
+  async function save(){
+    const acc = {
+      id: cur?.id,
+      code: $('f_code').value,
+      name: $('f_name').value,
+      type: $('f_type').value,
+      isCash: $('f_cash').checked,
+      isAR: $('f_ar').checked,
+      isAP: $('f_ap').checked,
+      isFxMonetary: $('f_fx').checked,
+    };
+    if(!acc.code || !acc.name){ toast('أدخل code و name'); return; }
+    await upsertAccount(acc);
+    toast('تم الحفظ');
+    close();
+    await refresh();
+  }
+
+  async function del(){
+    if(!cur?.id){ toast('لا يوجد'); return; }
+    if(!confirm('حذف الحساب؟')) return;
+    await deleteAccount(cur.id);
+    toast('تم الحذف');
+    close();
+    await refresh();
+  }
+
+  document.getElementById('btnNew').addEventListener('click', ()=>open(null));
+  document.getElementById('btnClose').addEventListener('click', close);
+  document.getElementById('btnSave').addEventListener('click', save);
+  document.getElementById('btnDelete').addEventListener('click', del);
+  document.getElementById('btnSeed').addEventListener('click', seed);
+  document.getElementById('btnLogout').addEventListener('click', logout);
+
+  requireAuth(async (user)=>{
+    document.querySelector('#userPill b').textContent = user.email || user.uid;
+    await refresh();
+  });
+
+</script>
+
+<script type="module" src="./pwa.js"></script>
+</body>
+</html>

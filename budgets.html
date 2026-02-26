@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Budgets | Financial Analytics SUITE</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnMenu" class="btn icon" title="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <div class="logo">FA</div>
+    <div>
+      <div class="title">Budget</div>
+      <div class="subtitle">Budget vs Actual + Variance (by account/month)</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+    <label class="btn">Import
+      <input id="file" type="file" accept=".xlsx,.xls" hidden/>
+    </label>
+    <button id="btnNew" class="btn ok">New Budget Year</button>
+    <button id="btnLogout" class="btn">خروج</button>
+  </div>
+</header>
+
+<div id="backdrop" class="backdrop"></div>
+<aside id="drawer" class="drawer">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div class="logo" style="width:44px;height:44px;border-radius:16px">FA</div>
+    <div>
+      <div style="font-weight:950">Financial Analytics SUITE</div>
+      <div class="small">PRO+ • Accounting Engine v2</div>
+    </div>
+  </div>
+  <div class="sectionTitle">الشاشات</div>
+  <nav class="nav">
+    <a href="cfo.html" data-nav="cfo"><span>CFO Reports</span><span class="hint">Variance</span></a>
+    <a href="budgets.html" data-nav="budget"><span>Budget</span><span class="hint">Import/Lines</span></a>
+    <a href="coa.html" data-nav="coa"><span>COA</span><span class="hint">Accounts</span></a>
+    <a href="settings.html" data-nav="settings"><span>الإعدادات</span><span class="hint">Company</span></a>
+  </nav>
+</aside>
+
+<main class="container">
+  <section class="panel">
+    <div class="grid grid4">
+      <div class="field"><label>Year</label><input id="year" type="number" value="2026"/></div>
+      <div class="field"><label>Currency</label><input id="ccy" value="EGP"/></div>
+      <div class="field"><label>Active Budget Id</label><input id="bid" disabled/></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button id="btnLoad" class="btn secondary">Load</button>
+        <button id="btnClear" class="btn danger">Clear Lines</button>
+      </div>
+    </div>
+    <div class="small" style="margin-top:10px">
+      Import template (Excel sheet 1): columns <b>account_code</b>, <b>month</b> (YYYY-MM), <b>amount_base</b>.
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="sheetHead">
+      <div>
+        <div class="title">Budget Lines</div>
+        <div class="subtitle">آخر 300 سطر</div>
+      </div>
+      <button id="btnRefresh" class="btn secondary">تحديث</button>
+    </div>
+    <div style="overflow:auto;margin-top:10px">
+      <table class="table">
+        <thead><tr><th>month</th><th>account</th><th>amountBase</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+  import { wireDrawer, toast } from "./app.js";
+  import { requireAuth, logout, db, companyCol } from "./firebase_client.js";
+  import { listCOA } from "./store.js";
+  import { addDoc, collection, deleteDoc, doc, getDocs, query, where, orderBy, limit, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+  wireDrawer('budget');
+  const $=(id)=>document.getElementById(id);
+  let COA=[];
+  let byCode=new Map();
+  let activeBudgetId='';
+
+  async function loadCOA0(){
+    COA = await listCOA();
+    byCode = new Map(COA.map(a=>[String(a.code||'').trim(), a]));
+  }
+
+  async function ensureBudget(){
+    const year = Number($('year').value);
+    const q0 = query(companyCol('budgets'), where('year','==',year), orderBy('createdAt','desc'), limit(1));
+    const snap = await getDocs(q0);
+    if(!snap.empty){
+      activeBudgetId = snap.docs[0].id;
+      $('bid').value = activeBudgetId;
+      return activeBudgetId;
+    }
+    const b = await addDoc(companyCol('budgets'), { year, currency: $('ccy').value || 'EGP', createdAt: serverTimestamp() });
+    activeBudgetId = b.id;
+    $('bid').value = activeBudgetId;
+    return activeBudgetId;
+  }
+
+  async function refresh(){
+    const id = await ensureBudget();
+    const snap = await getDocs(query(collection(db, companyCol('budgets').path, id, 'lines'), orderBy('month','desc'), limit(300)));
+    const rows = snap.docs.map(d=>d.data());
+    const tb=$('tbody'); tb.innerHTML='';
+    for(const r of rows){
+      const acc = COA.find(a=>a.id===r.accountId);
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${r.month||''}</td><td>${acc? (acc.code+' '+acc.name): r.accountId}</td><td>${(r.amountBase||0).toLocaleString()}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  async function clearLines(){
+    const id = await ensureBudget();
+    if(!confirm('مسح كل خطوط الميزانية لهذا العام؟')) return;
+    const snap = await getDocs(collection(db, companyCol('budgets').path, id, 'lines'));
+    const batch = writeBatch(db);
+    snap.docs.forEach(d=>batch.delete(d.ref));
+    await batch.commit();
+    toast('تم المسح');
+    await refresh();
+  }
+
+  async function importFile(file){
+    const id = await ensureBudget();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws, {defval:''});
+    // Simple mapping + validation
+    const errors=[];
+    const rows=[];
+    for(let i=0;i<json.length;i++){
+      const r=json[i];
+      const code = String(r.account_code || r.account || r.code || '').trim();
+      const month = String(r.month || r.Month || '').trim();
+      const amount = Number(String(r.amount_base ?? r.amount ?? '').replace(/,/g,''));
+      const acc = byCode.get(code);
+      if(!acc){ errors.push(`Row ${i+2}: invalid account_code ${code}`); continue; }
+      if(!/^\d{4}-\d{2}$/.test(month)){ errors.push(`Row ${i+2}: invalid month ${month}`); continue; }
+      if(!Number.isFinite(amount)){ errors.push(`Row ${i+2}: invalid amount ${r.amount_base}`); continue; }
+      rows.push({ accountId: acc.id, month, amountBase: amount });
+    }
+    if(errors.length){
+      toast('Import errors (first 3): '+errors.slice(0,3).join(' | '));
+      console.error(errors);
+    }
+    const batch = writeBatch(db);
+    const col = collection(db, companyCol('budgets').path, id, 'lines');
+    rows.forEach(r=>{
+      batch.set(doc(col), { ...r, createdAt: serverTimestamp() });
+    });
+    await batch.commit();
+    toast(`تم الاستيراد: ${rows.length} سطر`);
+    await refresh();
+  }
+
+  $('btnNew').addEventListener('click', async ()=>{ activeBudgetId=''; await ensureBudget(); toast('تم إنشاء Budget'); await refresh(); });
+  $('btnLoad').addEventListener('click', refresh);
+  $('btnRefresh').addEventListener('click', refresh);
+  $('btnClear').addEventListener('click', clearLines);
+  $('btnLogout').addEventListener('click', logout);
+  $('file').addEventListener('change', async (e)=>{
+    const f = e.target.files?.[0];
+    if(f) await importFile(f);
+    e.target.value='';
+  });
+
+  requireAuth(async (user)=>{
+    document.querySelector('#userPill b').textContent = user.email || user.uid;
+    $('year').value = new Date().getFullYear();
+    await loadCOA0();
+    await refresh();
+  });
+</script>
+
+<script type="module" src="./pwa.js"></script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { return isSignedIn() && request.auth.uid == "46iC2fVDFEcP2mF859JyNyshpDz1"; }
+
+    function isValidDateStr(s) { return s is string && s.size() == 10; } // YYYY-MM-DD
+    function isValidPeriod(p) { return p is string && p.size() == 7; }   // YYYY-MM
+
+    function periodFromDate(dateStr) { return dateStr.substring(0,7); }
+    function isPeriodClosed(companyId, period) {
+      return exists(/databases/$(database)/documents/companies/$(companyId)/periodClosings/$(period));
+    }
+
+    // =========================
+    // Companies root
+    // =========================
+    match /companies/{companyId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if isAdmin();
+
+      // -------- COA --------
+      match /chartOfAccounts/{accountId} {
+        allow read: if isAdmin();
+        allow create, update, delete: if isAdmin();
+      }
+
+      // -------- Entities --------
+      match /customers/{id} { allow read, write: if isAdmin(); }
+      match /suppliers/{id} { allow read, write: if isAdmin(); }
+
+      // -------- Exchange rates --------
+      match /exchangeRates/{id} {
+        allow read: if isAdmin();
+        allow create, update, delete: if isAdmin();
+      }
+
+      // -------- Period Close --------
+      match /periodClosings/{period} {
+        allow read: if isAdmin();
+        allow create, update, delete: if isAdmin();
+      }
+
+      // -------- Documents --------
+      match /documents/{docId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin()
+          && isValidDateStr(request.resource.data.date)
+          && isValidPeriod(request.resource.data.period)
+          && request.resource.data.period == periodFromDate(request.resource.data.date)
+          && !isPeriodClosed(companyId, request.resource.data.period);
+
+        allow update, delete: if isAdmin()
+          && isValidDateStr(resource.data.date)
+          && isValidPeriod(resource.data.period)
+          && !isPeriodClosed(companyId, resource.data.period);
+
+        match /documentLines/{lineId} {
+          allow read: if isAdmin();
+          allow create, update, delete: if isAdmin()
+            && isValidDateStr(get(/databases/$(database)/documents/companies/$(companyId)/documents/$(docId)).data.date)
+            && !isPeriodClosed(companyId, get(/databases/$(database)/documents/companies/$(companyId)/documents/$(docId)).data.period);
+        }
+      }
+
+      // -------- Journal Entries --------
+      match /journalEntries/{jeId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin()
+          && isValidDateStr(request.resource.data.date)
+          && isValidPeriod(request.resource.data.period)
+          && request.resource.data.period == periodFromDate(request.resource.data.date)
+          && !isPeriodClosed(companyId, request.resource.data.period);
+
+        allow update, delete: if isAdmin()
+          && isValidDateStr(resource.data.date)
+          && isValidPeriod(resource.data.period)
+          && !isPeriodClosed(companyId, resource.data.period);
+
+        match /lines/{lineId} {
+          allow read: if isAdmin();
+          allow create, update, delete: if isAdmin()
+            && !isPeriodClosed(companyId, get(/databases/$(database)/documents/companies/$(companyId)/journalEntries/$(jeId)).data.period);
+        }
+      }
+
+      // -------- Budgets --------
+      match /budgets/{budgetId} {
+        allow read, write: if isAdmin();
+        match /lines/{lineId} { allow read, write: if isAdmin(); }
+      }
+
+      // -------- Alerts --------
+      match /alerts/{alertId} {
+        allow read, write: if isAdmin();
+      }
+      match /alerts_log/{logId} {
+        allow read, write: if isAdmin();
+      }
+
+      // -------- Legacy (transactions) --------
+      match /transactions/{id} {
+        allow read: if isAdmin();
+        allow write: if isAdmin();
+      }
+      match /settings/{id} {
+        allow read, write: if isAdmin();
+      }
+    }
+  }
+}

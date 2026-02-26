@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Period Close | Financial Analytics SUITE</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnMenu" class="btn icon" title="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <div class="logo">FA</div>
+    <div>
+      <div class="title">Period Close</div>
+      <div class="subtitle">إقفال شهري/ربع سنوي يمنع تعديل الفترة بعد الإقفال</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+    <button id="btnLogout" class="btn">خروج</button>
+  </div>
+</header>
+
+<div id="backdrop" class="backdrop"></div>
+<aside id="drawer" class="drawer">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div class="logo" style="width:44px;height:44px;border-radius:16px">FA</div>
+    <div>
+      <div style="font-weight:950">Financial Analytics SUITE</div>
+      <div class="small">PRO+ • Accounting Engine v2</div>
+    </div>
+  </div>
+  <div class="sectionTitle">الشاشات</div>
+  <nav class="nav">
+    <a href="cfo.html" data-nav="cfo"><span>CFO Reports</span><span class="hint">P&L / CF / BS</span></a>
+    <a href="documents.html" data-nav="docs"><span>المستندات</span><span class="hint">Auto-post</span></a>
+    <a href="period-close.html" data-nav="close"><span>Period Close</span><span class="hint">Lock periods</span></a>
+    <a href="fx.html" data-nav="fx"><span>أسعار الصرف</span><span class="hint">Multi-currency</span></a>
+    <a href="alerts.html" data-nav="alerts"><span>Alerts</span><span class="hint">Rules + AI-lite</span></a>
+    <a href="settings.html" data-nav="settings"><span>الإعدادات</span><span class="hint">Company</span></a>
+  </nav>
+</aside>
+
+<main class="container">
+  <section class="panel">
+    <div class="grid grid3">
+      <div class="field"><label>Period (YYYY-MM)</label><input id="period" placeholder="2026-02"/></div>
+      <div class="field"><label>Notes</label><input id="notes" placeholder="مثال: إقفال فبراير"/></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button id="btnClose" class="btn ok">Close Period</button>
+        <button id="btnReopen" class="btn danger">Reopen (Delete Close)</button>
+      </div>
+    </div>
+    <div class="small" style="margin-top:10px">بعد الإقفال: أي إضافة/تعديل/حذف في journalEntries/documents ضمن الفترة سيكون مرفوض (client + rules).</div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="sheetHead">
+      <div>
+        <div class="title">Closed Periods</div>
+        <div class="subtitle">قائمة الفترات المقفلة</div>
+      </div>
+      <button id="btnRefresh" class="btn secondary">تحديث</button>
+    </div>
+    <div style="margin-top:10px;overflow:auto">
+      <table class="table">
+        <thead><tr><th>period</th><th>closedAt</th><th>closedBy</th><th>notes</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+  import { wireDrawer, toast } from "./app.js";
+  import { requireAuth, logout, companyCol } from "./firebase_client.js";
+  import { closePeriod, reopenPeriod } from "./store.js";
+  import { getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+  wireDrawer('close');
+  const $=(id)=>document.getElementById(id);
+  let userUid='';
+
+  async function refresh(){
+    const snap = await getDocs(query(companyCol('periodClosings'), orderBy('period','desc')));
+    const rows = snap.docs.map(d=>d.data());
+    const tb=$('tbody'); tb.innerHTML='';
+    for(const r of rows){
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${r.period||''}</td><td>${r.closedAt?.toDate? r.closedAt.toDate().toLocaleString(): ''}</td><td>${r.closedBy||''}</td><td>${r.notes||''}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  async function doClose(){
+    const period = $('period').value.trim();
+    if(!/^\d{4}-\d{2}$/.test(period)){ toast('اكتب الفترة بصيغة YYYY-MM'); return; }
+    await closePeriod(period, userUid, $('notes').value);
+    toast('تم الإقفال');
+    await refresh();
+  }
+
+  async function doReopen(){
+    const period = $('period').value.trim();
+    if(!/^\d{4}-\d{2}$/.test(period)){ toast('اكتب الفترة بصيغة YYYY-MM'); return; }
+    if(!confirm('إعادة فتح الفترة؟ هذا يسمح بالتعديل عليها.')) return;
+    await reopenPeriod(period);
+    toast('تم فتح الفترة');
+    await refresh();
+  }
+
+  $('btnClose').addEventListener('click', doClose);
+  $('btnReopen').addEventListener('click', doReopen);
+  $('btnRefresh').addEventListener('click', refresh);
+  $('btnLogout').addEventListener('click', logout);
+
+  requireAuth(async (user)=>{
+    userUid = user.uid;
+    document.querySelector('#userPill b').textContent = user.email || user.uid;
+    await refresh();
+  });
+</script>
+
+<script type="module" src="./pwa.js"></script>
+</body>
+</html>

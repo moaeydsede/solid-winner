@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Documents | Financial Analytics SUITE</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <button id="btnMenu" class="btn icon" title="القائمة">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 6h16M4 12h16M4 18h16"/>
+      </svg>
+    </button>
+    <div class="logo">FA</div>
+    <div>
+      <div class="title">المستندات</div>
+      <div class="subtitle">Invoices / Vouchers + Document Lines + Auto-post Journal</div>
+    </div>
+  </div>
+  <div class="actions">
+    <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+    <button id="btnNew" class="btn ok">+ مستند</button>
+    <button id="btnExport" class="btn secondary">Export Excel</button>
+    <button id="btnLogout" class="btn">خروج</button>
+  </div>
+</header>
+
+<div id="backdrop" class="backdrop"></div>
+<aside id="drawer" class="drawer">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+    <div class="logo" style="width:44px;height:44px;border-radius:16px">FA</div>
+    <div>
+      <div style="font-weight:950">Financial Analytics SUITE</div>
+      <div class="small">PRO+ • Accounting Engine v2</div>
+    </div>
+  </div>
+  <div class="sectionTitle">الشاشات</div>
+  <nav class="nav">
+    <a href="cfo.html" data-nav="cfo"><span>CFO Reports</span><span class="hint">P&L / CF / BS</span></a>
+    <a href="coa.html" data-nav="coa"><span>دليل الحسابات</span><span class="hint">COA</span></a>
+    <a href="documents.html" data-nav="docs"><span>المستندات</span><span class="hint">Auto-post</span></a>
+    <a href="period-close.html" data-nav="close"><span>Period Close</span><span class="hint">Lock periods</span></a>
+    <a href="fx.html" data-nav="fx"><span>أسعار الصرف</span><span class="hint">Multi-currency</span></a>
+    <a href="budgets.html" data-nav="budget"><span>Budget</span><span class="hint">Variance</span></a>
+    <a href="alerts.html" data-nav="alerts"><span>Alerts</span><span class="hint">Rules + AI-lite</span></a>
+    <a href="settings.html" data-nav="settings"><span>الإعدادات</span><span class="hint">Company</span></a>
+  </nav>
+</aside>
+
+<main class="container">
+  <section class="panel">
+    <div class="grid grid4">
+      <div class="field"><label>من</label><input id="fromDate" type="date"/></div>
+      <div class="field"><label>إلى</label><input id="toDate" type="date"/></div>
+      <div class="field"><label>بحث (ref / memo)</label><input id="q" placeholder="مثال INV-1001"/></div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button id="btnApply" class="btn secondary">تحديث</button>
+        <span class="pill">Rows: <b id="cnt">—</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div style="overflow:auto">
+      <table class="table" id="tbl">
+        <thead><tr><th>date</th><th>type</th><th>currency</th><th>fx</th><th>counterparty</th><th>ref</th><th>memo</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="title">Forms ذكية</div>
+    <div class="small" style="margin-top:6px">
+      - اختر <b>ar_invoice</b> لتظهر حقول العميل + سطور الإيراد تلقائياً.<br/>
+      - Duplicate detection حسب ref + date يمنع التكرار.<br/>
+      - Multi-currency: حدّد العملة و FX rate (أو يتم جلبه من صفحة FX إن وجد).
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="modal">
+  <div class="card sheet">
+    <div class="sheetHead">
+      <div>
+        <div class="title">إنشاء مستند</div>
+        <div class="subtitle">سيتم إنشاء مستند + ترحيل قيد يومية تلقائياً</div>
+      </div>
+      <button id="btnClose" class="btn">إغلاق</button>
+    </div>
+    <hr/>
+    <div class="grid grid3">
+      <div class="field"><label>Doc Type</label>
+        <select id="f_type">
+          <option value="ar_invoice">ar_invoice</option>
+          <option value="ar_payment">ar_payment</option>
+          <option value="ap_invoice">ap_invoice</option>
+          <option value="ap_payment">ap_payment</option>
+          <option value="general">general</option>
+        </select>
+      </div>
+      <div class="field"><label>Date</label><input id="f_date" type="date"/></div>
+      <div class="field"><label>Ref</label><input id="f_ref" placeholder="INV-1001"/></div>
+    </div>
+    <div class="grid grid3" style="margin-top:10px">
+      <div class="field"><label>Currency</label><select id="f_ccy"><option>EGP</option><option>USD</option><option>SAR</option><option>AED</option></select></div>
+      <div class="field"><label>FX Rate to Base</label><input id="f_fx" type="number" step="0.000001" value="1"/></div>
+      <div class="field"><label>Counterparty Id (optional)</label><input id="f_cp" placeholder="customerId / supplierId"/></div>
+    </div>
+    <div class="field" style="margin-top:10px"><label>Memo</label><input id="f_memo"/></div>
+    <hr/>
+    <div class="sheetHead"><div class="title">Lines</div><button id="btnAddLine" class="btn secondary">+ سطر</button></div>
+    <div style="overflow:auto;margin-top:10px">
+      <table class="table" id="linesTbl">
+        <thead><tr><th>description</th><th>accountCode</th><th>amount</th><th></th></tr></thead>
+        <tbody id="linesBody"></tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <button id="btnSave" class="btn ok">حفظ + ترحيل</button>
+      <span id="hint" class="small"></span>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+  import { wireDrawer, toast, rangeForPeriod, periodFromDate, n } from "./app.js";
+  import { requireAuth, logout, db, companyCol } from "./firebase_client.js";
+  import { listCOA, createDocument, getFxRate, createJournalEntry } from "./store.js";
+  import { buildJEFromDocType } from "./templates.js";
+  import { getDocs, query, where, orderBy, limit } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+  wireDrawer('docs');
+  const $=(id)=>document.getElementById(id);
+  const tbody=$('tbody');
+  const modal=$('modal');
+  const linesBody=$('linesBody');
+  let COA=[];
+  let byCode=new Map();
+  const accountByCode=(code)=>byCode.get(String(code||'').trim());
+
+  function setDefault(){
+    const r=rangeForPeriod('month');
+    $('fromDate').value=r.start; $('toDate').value=r.end;
+  }
+
+  function open(){
+    $('f_type').value='ar_invoice';
+    $('f_date').value=new Date().toISOString().slice(0,10);
+    $('f_ref').value='';
+    $('f_ccy').value='EGP';
+    $('f_fx').value='1';
+    $('f_cp').value='';
+    $('f_memo').value='';
+    linesBody.innerHTML='';
+    addLine();
+    modal.classList.add('show');
+  }
+  function close(){ modal.classList.remove('show'); }
+
+  function addLine(){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td><input class='in' placeholder='description'/></td>
+      <td><input class='in' placeholder='مثال 4000'/></td>
+      <td><input class='in' type='number' step='0.01' value='0'/></td>
+      <td><button class='btn danger'>×</button></td>`;
+    tr.querySelector('button').addEventListener('click', ()=>tr.remove());
+    linesBody.appendChild(tr);
+  }
+
+  async function loadCOA0(){
+    COA = await listCOA();
+    byCode = new Map(COA.map(a=>[String(a.code||'').trim(), a]));
+  }
+
+  async function refresh(){
+    const from=$('fromDate').value; const to=$('toDate').value; const qtxt=String($('q').value||'').trim().toLowerCase();
+    let q0 = query(companyCol('documents'), where('date','>=',from), where('date','<=',to), orderBy('date','desc'), limit(250));
+    const snap = await getDocs(q0);
+    const rows = snap.docs.map(d=>({id:d.id, ...d.data()}))
+      .filter(r=> !qtxt || (String(r.ref||'').toLowerCase().includes(qtxt) || String(r.memo||'').toLowerCase().includes(qtxt)));
+    $('cnt').textContent = String(rows.length);
+    tbody.innerHTML='';
+    for(const r of rows){
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td>${r.date||''}</td><td>${r.docType||''}</td><td>${r.currency||''}</td><td>${r.fxRate||1}</td><td>${(r.counterpartyType||'')+' '+(r.counterpartyId||'')}</td><td>${r.ref||''}</td><td>${r.memo||''}</td>`;
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function save(){
+    const docType = $('f_type').value;
+    const date = $('f_date').value;
+    const ref = $('f_ref').value.trim();
+    const currency = $('f_ccy').value;
+    let fxRate = n($('f_fx').value || 1);
+    const cp = $('f_cp').value.trim();
+    const memo = $('f_memo').value.trim();
+    if(!date){ toast('أدخل التاريخ'); return; }
+
+    // if FX not entered and currency != base, try lookup
+    if(currency !== 'EGP' && (!fxRate || fxRate===1)){
+      fxRate = await getFxRate(date, currency);
+      $('f_fx').value = String(fxRate||1);
+    }
+
+    const lines = [...linesBody.querySelectorAll('tr')].map(tr=>{
+      const tds = tr.querySelectorAll('input');
+      return {
+        description: tds[0].value,
+        accountId: accountByCode(tds[1].value)?.id || '',
+        amount: n(tds[2].value),
+      };
+    }).filter(l=>l.amount && l.accountId);
+    if(!lines.length){ toast('أدخل سطر واحد على الأقل (account + amount)'); return; }
+
+    const docId = await createDocument({
+      docType,
+      date,
+      period: periodFromDate(date),
+      currency,
+      fxRate,
+      counterpartyType: docType.startsWith('ar_') ? 'customer' : (docType.startsWith('ap_') ? 'supplier' : ''),
+      counterpartyId: cp,
+      ref,
+      memo,
+      status:'posted'
+    }, lines);
+
+    const docObj = { id: docId, docType, date, period: periodFromDate(date), currency, fxRate, counterpartyId: cp, counterpartyType: docType.startsWith('ar_')?'customer':(docType.startsWith('ap_')?'supplier':''), ref, memo };
+    const jePack = buildJEFromDocType(docType, docObj, lines, { accountByCode });
+    await createJournalEntry(jePack.je, jePack.lines);
+    toast('تم الحفظ والترحيل');
+    close();
+    await refresh();
+  }
+
+  function exportExcel(){
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tbl')), 'Documents');
+    XLSX.writeFile(wb, 'Documents.xlsx');
+  }
+
+  document.getElementById('btnNew').addEventListener('click', open);
+  document.getElementById('btnClose').addEventListener('click', close);
+  document.getElementById('btnAddLine').addEventListener('click', addLine);
+  document.getElementById('btnSave').addEventListener('click', save);
+  document.getElementById('btnApply').addEventListener('click', refresh);
+  document.getElementById('btnExport').addEventListener('click', exportExcel);
+  document.getElementById('btnLogout').addEventListener('click', logout);
+
+  requireAuth(async (user)=>{
+    document.querySelector('#userPill b').textContent = user.email || user.uid;
+    setDefault();
+    await loadCOA0();
+    await refresh();
+  });
+
+</script>
+
+<script type="module" src="./pwa.js"></script>
+</body>
+</html>
