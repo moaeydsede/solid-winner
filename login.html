@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>تسجيل الدخول | Financial Analytics SUITE</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body style="display:grid;place-items:center;padding:18px">
+  <div style="width:min(460px,100%)" class="card">
+    <div class="brand" style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+      <div class="logo" style="width:52px;height:52px;border-radius:18px;font-size:18px">FA</div>
+      <div>
+        <div class="title">Financial Analytics SUITE</div>
+        <div class="subtitle">ULTRA+ • Firebase Auth • Admin Only</div>
+      </div>
+    </div>
+
+    <form id="loginForm" class="grid" autocomplete="on">
+      <div class="field">
+        <label>البريد</label>
+        <input id="email" type="email" value="admin@acc.local" required />
+      </div>
+      <div class="field">
+        <label>كلمة المرور</label>
+        <input id="password" type="password" value="Admin123" required />
+      </div>
+      <button class="btn ok" type="submit">دخول</button>
+      <div id="loginMsg" class="small" style="min-height:18px;color:var(--warn)"></div>
+      <div class="small">Admin UID: <b>46iC2fVDFEcP2mF859JyNyshpDz1</b></div>
+    </form>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCP1-oYeXWdMCd_vJvpfSWZgBrDP3kzyo8",
+      authDomain: "account-ceb7b.firebaseapp.com",
+      projectId: "account-ceb7b",
+      storageBucket: "account-ceb7b.firebasestorage.app",
+      messagingSenderId: "19287318305",
+      appId: "1:19287318305:web:0c8b0d14710f8dd9e02860"
+    };
+    const ADMIN_UID = "46iC2fVDFEcP2mF859JyNyshpDz1";
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    const form = document.getElementById("loginForm");
+    const msg = document.getElementById("loginMsg");
+    const setMsg = (t)=> msg.textContent = t || "";
+
+    form.addEventListener("submit", async (e)=>{
+      e.preventDefault();
+      setMsg("");
+      try{
+        const email = document.getElementById("email").value.trim();
+        const pass = document.getElementById("password").value;
+        const cred = await signInWithEmailAndPassword(auth, email, pass);
+        if(cred.user.uid !== ADMIN_UID){
+          await signOut(auth);
+          throw new Error("ليس لديك صلاحية Admin لهذا المشروع.");
+        }
+        const params = new URLSearchParams(location.search);
+        const next = params.get("next") || "index.html";
+        location.replace(next);
+      } catch(err) {
+        console.error(err);
+        setMsg(err?.message || "فشل تسجيل الدخول");
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Variance Analysis | Financial Analytics SUITE</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">FA</div>
+      <div>
+        <div class="title">Financial Analytics SUITE</div>
+        <div class="subtitle">Variance Analysis: مقارنة فترتين + مقارنة سنوات (YoY)</div>
+        <div class="nav"><a href="index.html" class="">Dashboard</a><a href="monthly.html" class="">Monthly + Waterfall</a><a href="variance.html" class="active">Variance</a><a href="ar-ap.html" class="">AR/AP Aging + Cohort</a><a href="alerts.html" class="">Alerts</a></div>
+      </div>
+    </div>
+    <div class="actions">
+      <span id="userPill" class="pill">مستخدم: <b>—</b></span>
+      <button id="btnLoadSample" class="btn secondary">بيانات تجريبية</button>
+      <label class="btn">
+        رفع CSV/Excel
+        <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" hidden />
+      </label>
+      <button id="btnExportXLSX" class="btn secondary">Excel</button>
+      <button id="btnWipe" class="btn danger">مسح</button>
+      <button id="btnLogout" class="btn">خروج</button>
+    </div>
+  </header>
+
+<main class="container">
+  <section class="panel">
+    <div class="grid grid2">
+      <div class="card">
+        <div class="title">الفترة A (Current)</div>
+        <div class="grid grid3" style="margin-top:10px">
+          <div class="field"><label>من</label><input id="aFrom" type="date"></div>
+          <div class="field"><label>إلى</label><input id="aTo" type="date"></div>
+          <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+            <button id="btnA_month" class="btn secondary">A: شهر</button>
+            <button id="btnA_quarter" class="btn secondary">A: ربع</button>
+            <button id="btnA_half" class="btn secondary">A: نصف</button>
+            <button id="btnA_year" class="btn secondary">A: سنة</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="title">الفترة B (Previous)</div>
+        <div class="grid grid3" style="margin-top:10px">
+          <div class="field"><label>من</label><input id="bFrom" type="date"></div>
+          <div class="field"><label>إلى</label><input id="bTo" type="date"></div>
+          <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+            <button id="btnB_month" class="btn secondary">B: شهر</button>
+            <button id="btnB_quarter" class="btn secondary">B: ربع</button>
+            <button id="btnB_half" class="btn secondary">B: نصف</button>
+            <button id="btnB_year" class="btn secondary">B: سنة</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid4" style="margin-top:12px">
+      <div class="field"><label>العملة</label>
+        <select id="currency"><option value="EGP">EGP</option><option value="USD">USD</option><option value="SAR">SAR</option><option value="AED">AED</option></select>
+      </div>
+      <div style="display:flex;gap:10px;align-items:end;flex-wrap:wrap">
+        <button id="btnRun" class="btn ok">تشغيل المقارنة</button>
+        <span class="pill">A Rows: <b id="aCount">—</b></span>
+        <span class="pill">B Rows: <b id="bCount">—</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid grid2" style="margin-top:12px">
+    <div class="card">
+      <div class="title">Variance Table</div>
+      <div class="subtitle">Current vs Previous (Δ و %)</div>
+      <table class="table">
+        <thead><tr><th>Line</th><th>A</th><th>B</th><th>Δ</th><th>%</th></tr></thead>
+        <tbody id="varBody"></tbody>
+      </table>
+    </div>
+    <div class="card">
+      <div class="title">Variance Chart</div>
+      <div class="subtitle">Revenue / EBIT / Net</div>
+      <canvas id="chartVar" height="170"></canvas>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:12px">
+    <div class="title">Year-over-Year (YoY) Comparison</div>
+    <div class="subtitle">مقارنة سنوية تلقائية (حسب البيانات المتاحة)</div>
+    <canvas id="chartYoY" height="140" style="margin-top:10px"></canvas>
+  </section>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script type="module">
+
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
+    import {
+      getFirestore, collection, doc, getDoc, setDoc, getDocs,
+      query, orderBy, where, writeBatch, Timestamp
+    } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+
+    import { CFG, $, toast, n, money, computeKPIs, groupByMonth, fmtVar, rangeForPeriod, safeDiv, clamp } from "./app.js";
+
+    const app = initializeApp(CFG.firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    function normalizeRow(row){
+      const date = String(row.date ?? row.Date ?? row["التاريخ"] ?? "").trim().slice(0,10);
+      const type = String(row.type ?? row.Type ?? row["النوع"] ?? "").trim().toLowerCase();
+      const amountRaw = row.amount ?? row.Amount ?? row["المبلغ"];
+      const category = String(row.category ?? row.Category ?? row["التصنيف"] ?? "").trim();
+
+      const entity = String(row.entity ?? row.Entity ?? row["الطرف"] ?? row["العميل/المورد"] ?? "").trim();
+      const due_date = String(row.due_date ?? row.DueDate ?? row["تاريخ_الاستحقاق"] ?? "").trim().slice(0,10);
+      const ref = String(row.ref ?? row.Ref ?? row["مرجع"] ?? "").trim();
+
+      if(!date || !type) return null;
+      const allowed = new Set(["sale","cogs","expense","other_income","other_expense","tax","receipt","payment",
+        "ar_invoice","ar_payment","ap_invoice","ap_payment"]);
+      if(!allowed.has(type)) return null;
+
+      const amount = Number(String(amountRaw ?? "").replace(/,/g,"").trim());
+      if(!Number.isFinite(amount)) return null;
+
+      return { date, type, amount, category, entity, due_date, ref };
+    }
+
+    async function parseFile(file){
+      const name = (file.name||"").toLowerCase();
+      if(name.endsWith(".csv")){
+        return await new Promise((resolve,reject)=>{
+          Papa.parse(file, {
+            header:true, skipEmptyLines:true,
+            complete: (res)=> {
+              const rows=[];
+              for(const r of (res.data||[])){ const x=normalizeRow(r); if(x) rows.push(x); }
+              resolve(rows);
+            },
+            error: reject
+          });
+        });
+      }
+      if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data, {type:"array"});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, {defval:""});
+        const rows=[];
+        for(const r of json){ const x=normalizeRow(r); if(x) rows.push(x); }
+        return rows;
+      }
+      throw new Error("صيغة غير مدعومة. استخدم CSV أو Excel.");
+    }
+
+    async function addTransactions(rows){
+      const CHUNK=450;
+      for(let i=0;i<rows.length;i+=CHUNK){
+        const batch = writeBatch(db);
+        const part = rows.slice(i,i+CHUNK);
+        for(const r of part){
+          const refDoc = doc(collection(db, "transactions"));
+          batch.set(refDoc, {
+            date: r.date,
+            type: r.type,
+            amount: n(r.amount),
+            category: r.category || "",
+            entity: r.entity || "",
+            due_date: r.due_date || "",
+            ref: r.ref || "",
+            createdAt: Timestamp.now()
+          });
+        }
+        await batch.commit();
+      }
+    }
+
+    async function listTransactions(fromDate, toDate){
+      let q1 = query(collection(db,"transactions"), orderBy("date","asc"));
+      if(fromDate) q1 = query(collection(db,"transactions"), orderBy("date","asc"), where("date", ">=", fromDate));
+      if(toDate) q1 = query(collection(db,"transactions"), orderBy("date","asc"), where("date", "<=", toDate));
+      const snap = await getDocs(q1);
+      const out=[];
+      snap.forEach(d=>out.push({id:d.id, ...d.data()}));
+      return out;
+    }
+
+    async function wipeAll(){
+      const snap = await getDocs(collection(db,"transactions"));
+      const ids=[]; snap.forEach(d=>ids.push(d.id));
+      const batch = writeBatch(db);
+      ids.forEach(id=> batch.delete(doc(db,"transactions", id)));
+      await batch.commit();
+    }
+
+    async function ensureAdmin(){
+      return await new Promise((resolve)=>{
+        onAuthStateChanged(auth, async (user)=>{
+          if(!user || user.uid !== CFG.ADMIN_UID){
+            location.replace("login.html?next="+encodeURIComponent(location.pathname.split("/").pop() || "index.html"));
+            resolve(null);
+            return;
+          }
+          $("userPill").innerHTML = "مستخدم: <b>"+(user.email||"admin")+"</b>";
+          resolve(user);
+        });
+      });
+    }
+
+    function wireCommonButtons(refreshFn){
+      $("btnLogout").addEventListener("click", async ()=>{ await signOut(auth); location.replace("login.html"); });
+      $("btnWipe").addEventListener("click", async ()=>{
+        if(!confirm("تأكيد: سيتم حذف كل معاملات transactions من Firestore")) return;
+        await wipeAll();
+        toast("تم المسح");
+        await refreshFn();
+      });
+      $("fileInput").addEventListener("change", async (e)=>{
+        const file = e.target.files?.[0];
+        if(!file) return;
+        try{
+          $("fileInput").value="";
+          const rows = await parseFile(file);
+          if(!rows.length) throw new Error("لا يوجد صفوف صالحة. تأكد من الأعمدة: date,type,amount");
+          await addTransactions(rows);
+          toast("تم استيراد "+rows.length+" حركة");
+          await refreshFn();
+        }catch(err){
+          console.error(err);
+          toast(err?.message || "فشل الاستيراد");
+        }
+      });
+      $("btnLoadSample").addEventListener("click", async ()=>{
+        try{
+          const csv = `date,type,amount,category,entity,due_date,ref
+2025-12-01,sale,18000,مبيعات,,,
+2025-12-01,cogs,10400,تكلفة,,,
+2025-12-03,expense,1100,رواتب,,,
+2025-12-05,expense,500,تسويق,,,
+2025-12-06,receipt,15000,تحصيل,,,
+2025-12-07,payment,9000,دفع مورد,,,
+2026-01-02,sale,20000,مبيعات,,,
+2026-01-02,cogs,11800,تكلفة,,,
+2026-01-05,expense,1200,رواتب,,,
+2026-01-08,expense,650,تسويق,,,
+2026-01-15,other_income,600,دخل آخر,,,
+2026-01-16,other_expense,350,مصروف آخر,,,
+2026-01-20,tax,600,ضريبة,,,
+2026-02-01,sale,22000,مبيعات,,,
+2026-02-01,cogs,13200,تكلفة,,,
+2026-02-03,expense,900,إيجار,,,
+2026-02-20,tax,700,ضريبة,,,
+2026-01-03,ar_invoice,5000,فاتورة عميل,عميل-أ,2026-02-02,INV-1001
+2026-01-18,ar_invoice,6000,فاتورة عميل,عميل-أ,2026-02-18,INV-1002
+2026-01-25,ar_invoice,4000,فاتورة عميل,عميل-ب,2026-02-24,INV-2001
+2026-02-05,ar_payment,3000,تحصيل عميل,عميل-أ,,PAY-9001
+2026-02-22,ar_payment,5000,تحصيل عميل,عميل-أ,,PAY-9002
+2026-03-10,ar_payment,2000,تحصيل عميل,عميل-ب,,PAY-9100
+2026-01-07,ap_invoice,7000,فاتورة مورد,مورد-س,2026-02-06,BILL-3001
+2026-02-10,ap_payment,4000,سداد مورد,مورد-س,,PMT-8001
+`;
+          const file = new File([csv], "sample_ultraplus.csv", {type:"text/csv"});
+          const rows = await parseFile(file);
+          await addTransactions(rows);
+          toast("تم تحميل بيانات تجريبية ULTRA+");
+          await refreshFn();
+        }catch(e){ console.error(e); toast("فشل تحميل البيانات التجريبية"); }
+      });
+      $("btnExportXLSX").addEventListener("click", async ()=>{
+        const wb = XLSX.utils.book_new();
+        const rows = (window.__rows||[]).map(r=>({
+          date:r.date,type:r.type,amount:r.amount,category:r.category||"",entity:r.entity||"",due_date:r.due_date||"",ref:r.ref||""
+        }));
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "Transactions");
+        if(window.__export && Array.isArray(window.__export.sheets)){
+          for(const sh of window.__export.sheets){
+            XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sh.rows), sh.name);
+          }
+        }
+        XLSX.writeFile(wb, "financial-ultraplus.xlsx");
+      });
+    }
+
+    window.__api = { listTransactions, computeKPIs, groupByMonth, money, n, fmtVar, rangeForPeriod, safeDiv, clamp };
+
+
+let chartVar=null, chartYoY=null;
+
+async function loadRange(from, to){
+  const rows = await listTransactions(from, to);
+  return rows;
+}
+
+function renderTable(a, b, ccy){
+  const lines = [
+    ["Revenue", a.revenue, b.revenue],
+    ["COGS", a.cogs, b.cogs],
+    ["Gross", a.gross, b.gross],
+    ["OPEX", a.opex, b.opex],
+    ["EBIT", a.ebit, b.ebit],
+    ["Tax", a.tax, b.tax],
+    ["Net", a.net, b.net],
+    ["Net Cash", a.netCash, b.netCash],
+  ];
+  document.getElementById("varBody").innerHTML = lines.map(([name,cur,pre])=>{
+    const v = fmtVar(cur, pre);
+    return `<tr>
+      <td><b>${name}</b></td>
+      <td>${money(cur, ccy)}</td>
+      <td>${money(pre, ccy)}</td>
+      <td><b>${money(v.delta, ccy)}</b></td>
+      <td>${Number.isFinite(v.pct)? (v.pct*100).toFixed(1)+"%":"—"}</td>
+    </tr>`;
+  }).join("");
+
+  window.__export = {
+    sheets: [
+      {name:"Variance", rows: lines.map(([name,cur,pre])=>{ const v=fmtVar(cur,pre); return {line:name,A:cur,B:pre,delta:v.delta,pct:v.pct}; })}
+    ]
+  };
+}
+
+function renderChart(a, b){
+  if(chartVar) chartVar.destroy();
+  chartVar = new Chart(document.getElementById("chartVar"), {
+    type:"bar",
+    data:{
+      labels:["Revenue","EBIT","Net"],
+      datasets:[
+        {label:"A", data:[a.revenue,a.ebit,a.net]},
+        {label:"B", data:[b.revenue,b.ebit,b.net]},
+      ]
+    },
+    options:{
+      responsive:true,
+      plugins:{ legend:{ labels:{ color:"#e8f0ff" } } },
+      scales:{
+        x:{ ticks:{ color:"#9fb2d3" }, grid:{ color:"rgba(255,255,255,.06)" } },
+        y:{ ticks:{ color:"#9fb2d3" }, grid:{ color:"rgba(255,255,255,.06)" } },
+      }
+    }
+  });
+}
+
+function aggregateByYear(rows){
+  const map=new Map();
+  for(const r of rows){
+    const y = String(r.date||"").slice(0,4);
+    if(!y) continue;
+    if(!map.has(y)) map.set(y, []);
+    map.get(y).push(r);
+  }
+  const keys=[...map.keys()].sort();
+  const agg = keys.map(y=>{ const k=computeKPIs(map.get(y)); return {year:y, revenue:k.revenue, net:k.net}; });
+  return {keys, agg};
+}
+
+function renderYoY(allRows){
+  const {keys, agg} = aggregateByYear(allRows);
+  if(chartYoY) chartYoY.destroy();
+  chartYoY = new Chart(document.getElementById("chartYoY"), {
+    type:"line",
+    data:{
+      labels: keys,
+      datasets:[
+        {label:"Revenue", data: agg.map(a=>a.revenue)},
+        {label:"Net", data: agg.map(a=>a.net)},
+      ]
+    },
+    options:{
+      responsive:true,
+      plugins:{ legend:{ labels:{ color:"#e8f0ff" } } },
+      scales:{
+        x:{ ticks:{ color:"#9fb2d3" }, grid:{ color:"rgba(255,255,255,.06)" } },
+        y:{ ticks:{ color:"#9fb2d3" }, grid:{ color:"rgba(255,255,255,.06)" } },
+      }
+    }
+  });
+}
+
+function applyPreset(prefix, kind){
+  const r = rangeForPeriod(kind, new Date().toISOString().slice(0,10));
+  document.getElementById(prefix+"From").value = r.start;
+  document.getElementById(prefix+"To").value = r.end;
+}
+
+async function run(){
+  const aFrom = document.getElementById("aFrom").value || "";
+  const aTo = document.getElementById("aTo").value || "";
+  const bFrom = document.getElementById("bFrom").value || "";
+  const bTo = document.getElementById("bTo").value || "";
+  const ccy = document.getElementById("currency").value || "EGP";
+
+  const aRows = await loadRange(aFrom, aTo);
+  const bRows = await loadRange(bFrom, bTo);
+
+  document.getElementById("aCount").textContent = aRows.length;
+  document.getElementById("bCount").textContent = bRows.length;
+
+  const a = computeKPIs(aRows);
+  const b = computeKPIs(bRows);
+  renderTable(a,b,ccy);
+  renderChart(a,b);
+
+  const all = await listTransactions("", "");
+  renderYoY(all);
+
+  toast("تم تشغيل المقارنة");
+}
+
+document.getElementById("btnRun").addEventListener("click", run);
+document.getElementById("btnA_month").addEventListener("click", ()=>applyPreset("a","month"));
+document.getElementById("btnA_quarter").addEventListener("click", ()=>applyPreset("a","quarter"));
+document.getElementById("btnA_half").addEventListener("click", ()=>applyPreset("a","half"));
+document.getElementById("btnA_year").addEventListener("click", ()=>applyPreset("a","year"));
+
+document.getElementById("btnB_month").addEventListener("click", ()=>applyPreset("b","month"));
+document.getElementById("btnB_quarter").addEventListener("click", ()=>applyPreset("b","quarter"));
+document.getElementById("btnB_half").addEventListener("click", ()=>applyPreset("b","half"));
+document.getElementById("btnB_year").addEventListener("click", ()=>applyPreset("b","year"));
+
+await ensureAdmin();
+wireCommonButtons(run);
+applyPreset("a","month");
+
+const now = new Date();
+const prev = new Date(now.getFullYear(), now.getMonth()-1, 15).toISOString().slice(0,10);
+const rPrev = rangeForPeriod("month", prev);
+document.getElementById("bFrom").value = rPrev.start;
+document.getElementById("bTo").value = rPrev.end;
+
+await run();
+</script>
+</body>
+</html>
